@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<style>
+    .indented {
+        padding-left:2em
+    }
+</style>
+<script type="text/javascript" src="../node_modules/bignumber.js/bignumber.min.js"></script>
+<script src="../dist/cryptocurve-sdk.js"></script>
+<script type="text/javascript" src="testAccounts.js"></script>
+<script type="text/javascript" src="samples.js"></script>
+<script type="text/javascript">
+
+    var sdk, nodeHost;
+
+    var setResult = function(text, id){
+        text = text || '';
+        if (id){
+            text = id + ': ' + text;
+        }
+        id = id || 'result';
+        if (text && typeof text == 'string'){
+            text = text.replace(/\n/g, '<br />');
+        }
+        document.getElementById(id).innerHTML = text;
+    };
+
+    var setFinalResult = setResult;
+
+    var helpErrors = {
+        "CONNECTION ERROR: Couldn't connect to node http://localhost:8545." : "connectionerrorhelp",
+        "etherbase must be explicitly specified": "createaccounthelp",
+        "The method personal_importRawKey does not exist/is not available" : "createaccounthelp"
+    };
+
+    function handleException(exception){
+        var message = exception.message;
+        if (helpErrors[message]){
+            message += `<a href="#${helpErrors[message]}">(?)</a>`;
+        }
+        setResult(`<font color="red">ERROR:</font><br />${message}`);
+        console.error(exception);
+    }
+
+    function updateNodeHost() {
+        nodeHost = document.getElementById('newNodeAddress').value;
+        sdk.setProvider(nodeHost);
+        document.getElementById('nodeAddress').innerHTML = sdk.currentProvider.host;
+    }
+
+    var currentSample,
+        currentSampleCode,
+        currentSampleInit;
+
+    function resetSample(){
+        document.getElementById('codeCell').innerHTML = 'Select code sample';
+        setResult('');
+        
+        // clear active watches
+        // web3.eth.clearSubscriptions();
+
+        sample = document.getElementById('sampleSelector').value;
+        if (sample && sample.length > 0){
+            // get sample code and init function
+            currentSampleInit = samples[sample].init;
+            currentSampleCode = samples[sample].code;
+            // print code into code cell
+            document.getElementById('codeCell').innerHTML =
+                '<pre>'+ currentSampleCode + '</pre>';
+        }
+    }
+
+    function runSample(){
+            // clear active watches
+            //web3.eth.clearSubscriptions();
+
+            // disable reset button
+            document.getElementById('runSampleButton').disabled = true;
+
+            // run init function
+            if (currentSampleInit){
+                currentSampleInit();
+            } else {
+                setResult();
+            }
+
+            // run code
+            try {
+                if (document.getElementById('sampleSelector').value == "Try your own code"){
+                    eval(document.getElementById('yourowncode').value);
+                } else {
+                    eval(currentSampleCode);
+                }
+            } catch (exception){
+                handleException(exception);
+            }
+
+            // reenable reset button
+            document.getElementById('runSampleButton').disabled = false;
+    }
+
+    var lastTransactionHash;
+
+    function init(){
+        sdk = new window.cryptocurve.sdk();
+
+        updateNodeHost();
+
+        // load samples
+        document.getElementById('sampleSelector').innerHTML =
+            '<option value="">Select a sample here</option>';
+        for (var sample in samples){
+            document.getElementById('sampleSelector').innerHTML +=
+                '<option value="' + sample + '">' + sample + '</option>';            
+        }
+    }
+
+</script>
+</head>
+<body onload="init()">
+    <h1>CryptoCurve SDK example page</h1>
+    Node URL
+        <a href="#nodeurlhelp" title="Click for help">(?)</a>:
+        <input id="newNodeAddress" onchange="updateNodeHost()" value="" />
+        (currently <b><span id="nodeAddress"></span></b>)
+    <h2>Samples</h2>
+    <table width="90%" border="1">
+        <tr>
+            <td valign="top">Code<br /><select id="sampleSelector" onchange="resetSample()"></select></td>
+            <td id="codeCell">Select code sample</td>
+        </tr>
+        <tr>
+            <td valign="top">Result<br /><button id="runSampleButton" onclick="runSample()">Run</button></td>
+            <td id="result"></td>
+        </tr>
+        <tr>
+            
+        </tr>
+    </table>    
+    <hr />
+    <div id="help">
+        <h2>Help</h3>
+        <a name="nodeurlhelp"/>
+        <div class="indented">
+            <h3>Node Url</h3>
+            <div class="indented">
+                Leave Node Url blank for <tt><b>http://localhost:8545</b></tt>.
+            </div>
+        </div>
+        <a name="connectionerrorhelp"/>
+        <div class="indented">
+            <h3>Connection Error</h3>
+            <div class="indented">
+                When attempting to test against a local geth instance, be sure to enable rpc:<br /> <tt><b>geth --dev --rpc --rpccorsdomain="*" --rpcaddr="localhost"</b></tt></i>
+                <br />
+                (replace <tt>--dev</tt> (private testing) with <tt>--testnet</tt> for the Ropsten network or <tt>--rinkeby</tt> for the Rinkeby network)
+            </div>
+        </div>
+        <a name="createaccounthelp"/>
+        <div class="indented">
+            <h3>Creating accounts and setting etherbase</h3>
+            <div class="indented">
+                Account management can only be performed through web3.js if the required modules have been loaded on the etherium node.<br />
+                <h4>Account management on a geth node</h4>
+                <div class="indented">
+                    Add "console" to your geth command parameters (eg. <tt>geth --dev console</tt>) and use the following commands as required:<br />
+                    <tt>
+                            <br />&gt; personal.newAccount("<i>[your password here]</i>>")
+                            <br />&gt; miner.setEtherbase("<i>[the address returned from the previous command]</i>")
+                    </tt>
+                </div>
+                <h4>Loading API modules on geth</h4>
+                <div class="indented">
+                    Certain functionality requires modules to be loaded on the geth instance, be sure to enable all modules for testing:<br />
+                    <tt>
+                        <br />geth --dev --rpcapi eth,net,web3,personal
+                    </tt>
+                </div>
+                <br />
+                (replace <tt>--dev</tt> (private testing) with <tt>--testnet</tt> for the Ropsten network or <tt>--rinkeby</tt> for the Rinkeby network)
+            </div>
+        </div>
+        <a name="networkversionhelp"/>
+        <div class="indented">
+            <h3>Network version number</h3>
+            <div class="indented">
+                See <a href="https://ethereum.stackexchange.com/a/17101/45919" target="_blank">this stackexchange answer</a> for a more thorough list of network identifiers,
+                but the important ones are: <br />
+                1: main network<br />
+                3: Ropsten<br />
+                4: Rinkeby<br />
+                If the version number isn't one of those then it's likely the node is on a private development network.
+            </div>
+        </div>
+     </div>
+</body>
+</html>
+
