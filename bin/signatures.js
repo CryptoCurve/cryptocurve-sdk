@@ -111,7 +111,9 @@ Signatures.prototype.verifySignedMessage = function (msgObject) {
     }
     //TODO: explain what's going on here
     sigb[64] = sigb[64] === 0 || sigb[64] === 1 ? sigb[64] + 27 : sigb[64];
-    const hash = msgObject.version === '2' ? ethUtil.hashPersonalMessage(ethUtil.toBuffer(msgObject.msg)) : ethUtil.sha3(msgObject.msg);
+    const hash = msgObject.version === '2' ?
+        ethUtil.hashPersonalMessage(ethUtil.toBuffer(msgObject.msg)) :
+        ethUtil.sha3(msgObject.msg);
     const pubKey = ethUtil.ecrecover(hash, sigb[64], sigb.slice(0, 32), sigb.slice(32, 64));
     var address = values.stripHexPrefixAndLower(msgObject.address);
     var computedAddress = ethUtil.pubToAddress(pubKey).toString('hex');
@@ -124,6 +126,15 @@ Signatures.prototype.verifySignedMessage = function (msgObject) {
  * @return {Buffer}
  */
 Signatures.prototype.wanSignRawTransactionWithPrivateKey = function (t, privateKey) {
+    // to, data: if it's not a buffer then convert it
+    if (!Buffer.isBuffer(t.to)) {
+        t.to = ethUtil.toBuffer(t.to);
+    }
+    if (!Buffer.isBuffer(t.data)) {
+        // TODO: does this need a 0x prefix like the 'to' property?
+        //t.data = t.data || "";
+        t.data = ethUtil.toBuffer(t.data);
+    }
     let rawTx = {
         Txtype: 0x01,
         nonce: ethUtil.bufferToInt(t.nonce),

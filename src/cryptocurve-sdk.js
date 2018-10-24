@@ -3,6 +3,7 @@
 var Web3 = require('web3');
 var ethUtil = require('ethereumjs-util');
 var Signatures = require('./signatures');
+var units = require('./lib/units');
 
 var DEFAULT_HOST = 'http://localhost:8545';
 
@@ -66,69 +67,112 @@ CryptoCurveSDK.prototype.setProviderWrapper = function(host, timeout, username, 
 };
 
 /**
- * wrapper for eth.sendTransaction
+ * convert transaction values to the correct format
  */
-CryptoCurveSDK.prototype.sendEthTransaction = function(transaction){
+CryptoCurveSDK.prototype.fixTransactionValues = function(transaction) {
     var self = this;
 
-    // TODO validate all values
-    // ensure value in correct hex format
-    if (!self.utils.isHex(transaction.value)){
-        if (!self.utils.isBN(transaction.value)){
-            // see https://web3js.readthedocs.io/en/1.0/web3-utils.html#towei
-            transaction.value = self.utils.toWei(transaction.value, transaction.denomination);
+    // TODO ensure we have gasprice and nonce
+
+    for (var property in transaction){
+        switch (property){
+            case "value":
+                var denomination = transaction.denomination || 'wei';
+                denomination = units.convert(denomination, transaction.network, 'eth');
+
+                if (!self.utils.isHex(transaction.value)){
+                    if (!self.utils.isBN(transaction.value)){
+                        // see https://web3js.readthedocs.io/en/1.0/web3-utils.html#towei
+                        transaction.value = self.utils.toWei(transaction.value, denomination);
+                    }
+                    transaction.value = self.utils.toHex(transaction.value);
+                }
+                break;
+            case "gas":
+            case "gasLimit":
+            case "gasPrice":
+            case "nonce":
+                if (!self.utils.isHex(transaction[property])){
+                    transaction[property] = self.utils.toHex(transaction[property]);
+                }
+                break;
+            break;
         }
-        transaction.value = self.utils.toHex(transaction.value);
     }
 
+    // ensure we have data
+    transaction.data = transaction.data || "";
+
+    return transaction;
+};
+
+/**
+ * send signed or unsigned transaction on ethereum network
+ */
+CryptoCurveSDK.prototype.sendEthTransaction = function(transaction, privateKey){
+    var self = this;
+
+    transaction = self.fixTransactionValues(transaction);
+
+    if (privateKey){
+        var signedTransaction = self.signatures.eth.signRawTransaction(transaction, privateKey);
+        return self.eth.sendSignedTransaction(
+            '0x' + signedTransaction.toString('hex')
+        );
+    }
     return self.eth.sendTransaction(transaction);
 }
 
 /**
- * entrypoint for sendTransaction for both eth and wan
+ * send signed or unsigned transaction on wanchain network
  */
-CryptoCurveSDK.prototype.sendTransaction = function (transaction) {
+CryptoCurveSDK.prototype.sendWanTransaction = function(transaction, privateKey){
     var self = this;
-    switch (transaction.network.toLowerCase()){
-        case 'eth':
-        case 'ethereum':
-            return self.sendEthTransaction(transaction);
-            break;
-        case 'wan':
-        case 'wanchain':
-            return self.eth.sendTransaction(transaction);
-            break;
+
+    // TODO: currently just passing through to maintain compatibility with
+    //      previous users, must be fixed soon
+
+    // force wan gas values
+    /*transaction.gasPrice = 200000000000;
+    transaction.gasLimit = 47000;
+
+    transaction = self.fixTransactionValues(transaction);*/
+
+    if (privateKey){
+        var signedTransaction = self.signatures.wan.signRawTransaction(transaction, privateKey); 
+        return self.eth.sendSignedTransaction(
+            '0x' + signedTransaction.toString('hex')
+        );
     }
-};
+    return self.eth.sendTransaction(transaction);
+}
 
 /**
- * entrypoint for sendSignedTransaction for both eth and wan
+ * entrypoint for sending signed or unsigned transactions on all supported networks
+ * transaction denomination defaults to smallest unit (eg. Wei or Win)
  */
-CryptoCurveSDK.prototype.sendSignedTransaction = function (transaction, privateKey) {
+CryptoCurveSDK.prototype.sendTransaction = function (transaction, privateKey) {
     var self = this;
-    var signedTransaction;
 
-    // ensure that privateKey is a Buffer
-    if (!Buffer.isBuffer(privateKey)){
+    // ensure that privateKey is a Buffer if it's been sent
+    if (privateKey && !Buffer.isBuffer(privateKey)){
         privateKey = ethUtil.toBuffer(ethUtil.addHexPrefix(privateKey));
     }
 
-    // TODO determine gas, generate nonce
     switch (transaction.network.toLowerCase()){
         case 'eth':
         case 'ethereum':
-            signedTransaction = self.signatures.eth.signRawTransaction(transaction, privateKey); 
+            transaction.network = 'eth';
+            return self.sendEthTransaction(transaction, privateKey);
             break;
         case 'wan':
         case 'wanchain':
-            signedTransaction = self.signatures.wan.signRawTransaction(transaction, privateKey); 
+            transaction.network = 'wan';
+            return self.sendWanTransaction(transaction, privateKey);
             break;
         default:
             throw new Error('invalid network');
     }
-    return self.eth.sendSignedTransaction(
-        '0x' + signedTransaction.toString('hex')
-    );
 };
 
 // enable use in both node.js and browser contexts
