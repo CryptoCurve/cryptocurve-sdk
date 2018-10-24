@@ -4,6 +4,16 @@ A single, simple API for cross-chain (ETH, WAN) functionality.
 
 # Installation
 
+## Browser
+
+Download and include the script from [our release page](https://github.com/CryptoCurve/cryptocurve-sdk/releases/) (or your local `dist` folder after building) in your HTML file and instantiate an instance as follows:
+
+```
+<script src="cryptocurve-sdk.min.js"></script>
+```
+
+## node.js
+
 `npm install cryptocurve-sdk`
 
 # Folders
@@ -15,20 +25,24 @@ A single, simple API for cross-chain (ETH, WAN) functionality.
 
 # Building
 
-`npm run tsc` compiles from `src` into the `bin/` folder
-
-`npm run build` runs `tsc` to compile into the `bin/` folder then `browserify` to compile into the `dist/` folder.
+`npm run build` runs `tsc` to compile from typescript into the `bin/` folder, then `browserify` to compile into the `dist/` folder, then `uglify` to minify the result.
 
 # Usage
 
-`web3.js` objects and methods can be accessed via `sdk.web3` or directly on the `sdk` object
+After creating an instance of the SDK class (see below for details), the following methods will be available:
 
-wanchain objects and methods can be access via `sdk.wan` eg.
 ```
-var transactionHash = sdk.wan.hash(transaction);
+sdk.setProvider(host, timeout, username, password);
+sdk.sendTransaction(transaction, privateKey);
 ```
 
-See `examples` folder, in particular `samples.js` which can be run from both browser (`dynamic.html`) and node.js (`node dynamic`). Please note that the samples required test accounts to be configured.
+Additionally, `web3.js` objects and methods can be accessed via `sdk.web3` or directly on the `sdk` object itself, eg.
+
+```
+sdk.eth.getCoinbase()
+```
+
+See `examples` folder, in particular `samples.js` which can be run from both browser (`dynamic.html`) and node.js (`node dynamic`). Please note that the samples required test accounts to be configured in the `testAccounts.js` file.
 
 ## Configuring test accounts
 
@@ -43,13 +57,13 @@ miner.setEtherbase("0x77f92a6b4b61319e538a6bc5345ad5eaab8d8654")
 
 ## Browser
 
-Include the `cryptocurve-sdk.js` script in your HTML file and instantiate an instance as follows:
+Include the script from [our release page](https://github.com/CryptoCurve/cryptocurve-sdk/releases/) (or your local `dist` folder after building) in your HTML file and instantiate an instance as follows:
 
 ```
 <script src="cryptocurve-sdk.js"></script>
 <script type="text/javascript">
 // if hostname is null, defaults to http://localhost:8545
-sdk = new window.cryptocurve.sdk(hostname);
+var sdk = new window.cryptocurve.sdk(hostname);
 sdk.setProvider(hostname);
 
 sdk.eth.getCoinbase()...

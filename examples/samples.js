@@ -195,7 +195,7 @@ var getMaxAndTotal = function(address, balance){
             `);
         }
     },
-    "Send ether from unlocked account on the node (sdk.sendTransaction)": {
+    "Send ether from unlocked account on the node": {
         code: `
 // derived from <a href="https://davekiss.com/ethereum-web3-node-tutorial/">https://davekiss.com/ethereum-web3-node-tutorial/</a> and
 //     <a href="https://medium.com/coinmonks/signing-and-making-transactions-on-ethereum-using-web3-js-1b5663207d63">https://medium.com/coinmonks/signing-and-making-transactions-on-ethereum-using-web3-js-1b5663207d63</a>
@@ -366,7 +366,7 @@ sendWhenReady();
             `);
         }
     },
-    "Send ether using private key (sdk.sendSignedTransaction)": {
+    "Send ethereum transaction signed with private key": {
         code: `
 // derived from <a href="https://davekiss.com/ethereum-web3-node-tutorial/">https://davekiss.com/ethereum-web3-node-tutorial/</a> and
 //     <a href="https://medium.com/coinmonks/signing-and-making-transactions-on-ethereum-using-web3-js-1b5663207d63">https://medium.com/coinmonks/signing-and-making-transactions-on-ethereum-using-web3-js-1b5663207d63</a>
@@ -472,7 +472,7 @@ var sendWhenReady = function(){
         var transactionConfirmations = '';
         
         // see <a href="https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction">https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction</a>
-        sdk.sendSignedTransaction(transaction, privateKey)
+        sdk.sendTransaction(transaction, privateKey)
             .on('transactionHash', function(hash){
                 setResult(hash, 'transactionHash');
             })
