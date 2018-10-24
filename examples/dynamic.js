@@ -4,7 +4,6 @@
 var CryptoCurveSDK = require('../bin/cryptocurve-sdk');
 
 var samples = require('./samples');
-var testAccounts = require('./testAccounts');
 
 var runQueue = [];
 
