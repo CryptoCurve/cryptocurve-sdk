@@ -43,7 +43,7 @@ miner.setEtherbase("0x77f92a6b4b61319e538a6bc5345ad5eaab8d8654")
 
 ## Browser
 
-Include the `cryptocurve-sdj.js` script in your HTML file and instantiate an instance as follows:
+Include the `cryptocurve-sdk.js` script in your HTML file and instantiate an instance as follows:
 
 ```
 <script src="cryptocurve-sdk.js"></script>
