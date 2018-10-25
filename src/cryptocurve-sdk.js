@@ -1,20 +1,19 @@
 'use strict';
 
 var Web3 = require('web3');
-var ethUtil = require('ethereumjs-util');
-var Signatures = require('./signatures');
+var utils = require('./lib/utils');
 var units = require('./lib/units');
 
 var DEFAULT_HOST = 'http://localhost:8545';
 
 /**
- * constructor function for the CryptoCurveSDK class
+ * constructor function for the Client class
  * @param {*} host 
  * @param {*} timeout 
  * @param {*} username 
  * @param {*} password 
  */
-function CryptoCurveSDK(host, timeout, username, password) {
+function Client(host, timeout, username, password) {
     var self = this;
 
     var web3 = new Web3();
@@ -25,19 +24,6 @@ function CryptoCurveSDK(host, timeout, username, password) {
         self[obj] = self.web3[obj];
     }
     
-    // add sdk utils to eth.utils
-    /*self.utils = self.utils || {};
-    for (var obj in sdkUtil){
-        if (self.utils[obj]) {
-            console.error('WARNING: SDK UTILS overwriting ' + obj + ' from web3 module');
-        }
-        self.utils[obj] = sdkUtil[obj];
-    }*/
-
-    // make signatures library directly accessible
-    var signatures = new Signatures();
-    self.signatures = signatures;
-
     // wrap setProvider
     self.setProvider = self.setProviderWrapper;
 
@@ -52,7 +38,7 @@ function CryptoCurveSDK(host, timeout, username, password) {
  * @param {*} username 
  * @param {*} password 
  */
-CryptoCurveSDK.prototype.setProviderWrapper = function(host, timeout, username, password) {
+Client.prototype.setProviderWrapper = function(host, timeout, username, password) {
     var self = this;
 
     if (!host || host.length == 0){
@@ -69,7 +55,7 @@ CryptoCurveSDK.prototype.setProviderWrapper = function(host, timeout, username, 
 /**
  * convert transaction values to the correct format
  */
-CryptoCurveSDK.prototype.fixTransactionValues = function(transaction) {
+Client.prototype.fixTransactionValues = function(transaction) {
     var self = this;
 
     // TODO ensure we have gasprice and nonce
@@ -109,13 +95,13 @@ CryptoCurveSDK.prototype.fixTransactionValues = function(transaction) {
 /**
  * send signed or unsigned transaction on ethereum network
  */
-CryptoCurveSDK.prototype.sendEthTransaction = function(transaction, privateKey){
+Client.prototype.sendEthTransaction = function(transaction, privateKey){
     var self = this;
 
     transaction = self.fixTransactionValues(transaction);
 
     if (privateKey){
-        var signedTransaction = self.signatures.eth.signRawTransaction(transaction, privateKey);
+        var signedTransaction = utils.eth.signRawTransaction(transaction, privateKey);
         return self.eth.sendSignedTransaction(
             '0x' + signedTransaction.toString('hex')
         );
@@ -126,7 +112,7 @@ CryptoCurveSDK.prototype.sendEthTransaction = function(transaction, privateKey){
 /**
  * send signed or unsigned transaction on wanchain network
  */
-CryptoCurveSDK.prototype.sendWanTransaction = function(transaction, privateKey){
+Client.prototype.sendWanTransaction = function(transaction, privateKey){
     var self = this;
 
     // TODO: currently just passing through to maintain compatibility with
@@ -139,7 +125,7 @@ CryptoCurveSDK.prototype.sendWanTransaction = function(transaction, privateKey){
     transaction = self.fixTransactionValues(transaction);*/
 
     if (privateKey){
-        var signedTransaction = self.signatures.wan.signRawTransaction(transaction, privateKey); 
+        var signedTransaction = utils.wan.signRawTransaction(transaction, privateKey); 
         return self.eth.sendSignedTransaction(
             '0x' + signedTransaction.toString('hex')
         );
@@ -151,14 +137,16 @@ CryptoCurveSDK.prototype.sendWanTransaction = function(transaction, privateKey){
  * entrypoint for sending signed or unsigned transactions on all supported networks
  * transaction denomination defaults to smallest unit (eg. Wei or Win)
  */
-CryptoCurveSDK.prototype.sendTransaction = function (transaction, privateKey) {
+Client.prototype.sendTransaction = function (transaction, privateKey) {
     var self = this;
 
     // ensure that privateKey is a Buffer if it's been sent
     if (privateKey && !Buffer.isBuffer(privateKey)){
-        privateKey = ethUtil.toBuffer(ethUtil.addHexPrefix(privateKey));
+        privateKey = utils.toBuffer(utils.addHexPrefix(privateKey));
     }
 
+    // default to eth network
+    transaction.network = transaction.network || 'eth';
     switch (transaction.network.toLowerCase()){
         case 'eth':
         case 'ethereum':
@@ -176,9 +164,16 @@ CryptoCurveSDK.prototype.sendTransaction = function (transaction, privateKey) {
 };
 
 // enable use in both node.js and browser contexts
+var exportObject = {
+    Client: Client
+};
+for (var util in utils){
+    exportObject[util] = utils[util];
+}
+
 // node.js
 try {
-    module.exports = CryptoCurveSDK;
+    module.exports = exportObject;
 } catch (exception){
     console.log('node.js error: ' + exception.message);
 }
@@ -186,7 +181,7 @@ try {
 try {
         // initialize cryptocurve object if necessary
         window.cryptocurve = window.cryptocurve || {};
-        window.cryptocurve.sdk = CryptoCurveSDK;
+        window.cryptocurve.sdk = exportObject;
 } catch (exception){
     console.log('web browser error: ' + exception.message);
 }

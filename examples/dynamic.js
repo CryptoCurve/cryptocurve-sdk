@@ -53,7 +53,7 @@ switch (process.argv[2]){
         break;
     case 'run':
         if (process.argv.length > 3) {
-            var sdk = new CryptoCurveSDK();
+            var sdk = new CryptoCurveSDK.Client();
             var nodeHost = process.argv[4];
             // username and password will be set to 'test' by default if not passed
             var username = 'test', password = 'test';

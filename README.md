@@ -35,6 +35,11 @@ After creating an instance of the SDK class (see below for details), the followi
 sdk.setProvider(host, timeout, username, password);
 sdk.sendTransaction(transaction, privateKey);
 ```
+NOTE: transaction object must contain a network identifier, eg.
+```
+transaction.network = 'eth';
+```
+that can be `eth`, `ethereum`, `wan` or `wanchain`. If not supplied, the sending protocol will default to the ethereum network.
 
 Additionally, `web3.js` objects and methods can be accessed via `sdk.web3` or directly on the `sdk` object itself, eg.
 
@@ -63,7 +68,7 @@ Include the script from [our release page](https://github.com/CryptoCurve/crypto
 <script src="cryptocurve-sdk.js"></script>
 <script type="text/javascript">
 // if hostname is null, defaults to http://localhost:8545
-var sdk = new window.cryptocurve.sdk(hostname);
+var sdk = new window.cryptocurve.sdk.Client(hostname);
 sdk.setProvider(hostname);
 
 sdk.eth.getCoinbase()...
@@ -75,7 +80,7 @@ sdk.web3.eth.getCoinbase()...
 
 ```
 var CryptoCurveSDK = require('cryptocurve-sdk');
-var sdk = new CryptoCurveSDK();
+var sdk = new CryptoCurveSDK.Client();
 
 sdk.eth.net.getId()...
 

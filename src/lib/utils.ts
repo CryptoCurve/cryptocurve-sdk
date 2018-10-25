@@ -4,34 +4,17 @@ var EthTx = require('ethereumjs-tx');
 
 var ethUtil = require('ethereumjs-util');
 
-var values = require('./lib/values');
+var values = require('./values');
 
 var wanUtil = require('wanchain-util');
 var WanTx = wanUtil.wanchainTx;
-
-// static function library
-function Signatures(){
-  var self = this;
-  self.eth = {
-    hash: self.hash,
-    signTransaction: self.sign,
-    signRawTransaction: self.signRawTransactionWithPrivateKey,
-    signMessage: self.signMessageWithPrivateKey,
-    verifySignedMessage: self.verifySignedMessage
-  };
-  self.wan = {
-    signRawTransaction: self.wanSignRawTransactionWithPrivateKey    
-  };
-}
-
-// WARNING TEMPORARY STATE: functions lifted directly from MyCryptoCurve, must still be cleaned and wrapped
 
 /**
  * Computes a sha3-256 hash of the serialized tx
  * @param {Boolean} [includeSignature=true] whether or not to include the signature
  * @return {Buffer}
  */
-Signatures.prototype.hash = function(t: any) {
+var ethHash = function(t: any) {
   var includeSignature = false;
 
   // EIP155 spec:
@@ -66,7 +49,7 @@ Signatures.prototype.hash = function(t: any) {
  * @param {Buffer} privateKey
  * @return {Signature}
  */
-Signatures.prototype.sign = function(t: any, privateKey: Buffer) {
+var ethSign = function(t: any, privateKey: Buffer) {
   const msgHash = this.hash(t);
   const sig = ethUtil.ecsign(msgHash, privateKey);
   if (t._chainId > 0) {
@@ -83,7 +66,7 @@ Signatures.prototype.sign = function(t: any, privateKey: Buffer) {
  * @param {Buffer} privateKey
  * @return {string}
  */
-Signatures.prototype.signMessageWithPrivateKey = function(msg: string, privateKey: Buffer): string {
+var ethSignMessageWithPrivateKey = function(msg: string, privateKey: Buffer): string {
   const hash = ethUtil.hashPersonalMessage(ethUtil.toBuffer(msg));
   const signed = ethUtil.ecsign(hash, privateKey);
   //console.log(signed);
@@ -103,7 +86,7 @@ Signatures.prototype.signMessageWithPrivateKey = function(msg: string, privateKe
  * @param {Buffer} privateKey
  * @return {Buffer}
  */
-Signatures.prototype.signRawTransactionWithPrivateKey = function(tx: any, privateKey: Buffer): Buffer {
+var ethSignRawTransactionWithPrivateKey = function(tx: any, privateKey: Buffer): Buffer {
   // TODO can we check if the transaction is already an EthTx instance?
   tx = new EthTx(tx);
   tx.sign(privateKey);
@@ -124,7 +107,7 @@ interface ISignedMessage {
  * @param {EthTx} t
  * @return {Boolean}
  */
-Signatures.prototype.verifySignedMessage = function(msgObject: ISignedMessage) : Boolean {
+var ethVerifySignedMessage = function(msgObject: ISignedMessage) : Boolean {
   const sigb = new Buffer(values.stripHexPrefixAndLower(msgObject.sig), 'hex');
   if (sigb.length !== 65) {
     return false;
@@ -149,7 +132,7 @@ Signatures.prototype.verifySignedMessage = function(msgObject: ISignedMessage) :
  * @param {Buffer} privateKey
  * @return {Buffer}
  */
-Signatures.prototype.wanSignRawTransactionWithPrivateKey = function(t: any, privateKey: Buffer): Buffer {
+var wanSignRawTransactionWithPrivateKey = function(t: any, privateKey: Buffer): Buffer {
     // to, data: if it's not a buffer then convert it
     if (!Buffer.isBuffer(t.to)){
         t.to = ethUtil.toBuffer(t.to);
@@ -177,7 +160,22 @@ Signatures.prototype.wanSignRawTransactionWithPrivateKey = function(t: any, priv
 };
 
 try {
-  module.exports = Signatures;
+  module.exports = {
+    addHexPrefix: ethUtil.addHexPrefix,
+    eth: {
+      hash: ethHash,
+      signTransaction: ethSign,
+      signRawTransaction: ethSignRawTransactionWithPrivateKey,
+      signMessage: ethSignMessageWithPrivateKey,
+      Tx: EthTx,
+      verifySignedMessage: ethVerifySignedMessage
+    },
+    toBuffer: ethUtil.toBuffer,
+    wan: {
+      signRawTransaction: wanSignRawTransactionWithPrivateKey,
+      Tx: WanTx
+    }
+  };
 } catch (exception){
   console.log('node.js error: ' + exception.message);
 }
