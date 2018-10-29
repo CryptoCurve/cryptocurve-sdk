@@ -29,7 +29,7 @@ Download and include the script from [our release page](https://github.com/Crypt
 
 # Usage
 
-After creating an instance of the SDK class (see below for details), the following methods will be available:
+After creating an instance of the SDK.Client class (see below for details), the following methods will be available:
 
 ```
 sdk.setProvider(host, timeout, username, password);

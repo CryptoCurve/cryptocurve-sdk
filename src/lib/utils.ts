@@ -159,23 +159,67 @@ var wanSignRawTransactionWithPrivateKey = function(t: any, privateKey: Buffer): 
     return tx.serialize();
 };
 
-try {
-  module.exports = {
-    addHexPrefix: ethUtil.addHexPrefix,
-    eth: {
-      hash: ethHash,
-      signTransaction: ethSign,
-      signRawTransaction: ethSignRawTransactionWithPrivateKey,
-      signMessage: ethSignMessageWithPrivateKey,
-      Tx: EthTx,
-      verifySignedMessage: ethVerifySignedMessage
-    },
-    toBuffer: ethUtil.toBuffer,
-    wan: {
-      signRawTransaction: wanSignRawTransactionWithPrivateKey,
-      Tx: WanTx
+var wanToChecksumAddress = function (address: string): string {
+  /* stripHexPrefix */
+  if (typeof address !== 'string') {
+    throw new Error('invalid address');
+  }
+  address = address.slice(0, 2) === '0x' ? address.slice(2) : address;
+  address = address.toLowerCase();
+  /* toChecksumWaddress */
+  const hash = ethUtil.sha3(address).toString('hex');
+  let ret = '0x';
+
+  for (let i = 0; i < address.length; i++) {
+    if (parseInt(hash[i], 16) < 8) {
+      ret += address[i].toUpperCase();
+    } else {
+      ret += address[i];
     }
-  };
+  }
+  return ret;
+};
+
+var sharedUtils: any = {
+  addHexPrefix: ethUtil.addHexPrefix,
+  bufferToHex: ethUtil.bufferToHex,
+  ecsign: ethUtil.ecsign,
+  hashPersonalMessage: ethUtil.hashPersonalMessage,
+  isValidPrivateKey: ethUtil.isValidPrivate,
+  padToEven: ethUtil.padToEven,
+  sha256: ethUtil.sha256,
+  sha3: ethUtil.sha3,      
+  stripHexPrefix: ethUtil.stripHexPrefix,
+  toBuffer: ethUtil.toBuffer,
+};
+
+var exportObject: any = {
+  eth: {
+    hash: ethHash,
+    signTransaction: ethSign,
+    signRawTransaction: ethSignRawTransactionWithPrivateKey,
+    signMessage: ethSignMessageWithPrivateKey,
+    toChecksumAddress: ethUtil.toChecksumAddress,
+    Tx: EthTx,
+    verifySignedMessage: ethVerifySignedMessage
+  },    
+
+  wan: {
+    signRawTransaction: wanSignRawTransactionWithPrivateKey,
+    toChecksumAddress: wanToChecksumAddress,
+    Tx: WanTx
+  }
+};
+
+// make shared utils available to all networks in export object
+for (var network in exportObject){
+  for (var method in sharedUtils){
+    exportObject[network][method] = sharedUtils[method];
+  }
+}
+
+try {
+  module.exports = exportObject;
 } catch (exception){
   console.log('node.js error: ' + exception.message);
 }

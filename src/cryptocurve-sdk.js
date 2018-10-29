@@ -142,7 +142,7 @@ Client.prototype.sendTransaction = function (transaction, privateKey) {
 
     // ensure that privateKey is a Buffer if it's been sent
     if (privateKey && !Buffer.isBuffer(privateKey)){
-        privateKey = utils.toBuffer(utils.addHexPrefix(privateKey));
+        privateKey = utils.eth.toBuffer(utils.eth.addHexPrefix(privateKey));
     }
 
     // default to eth network
@@ -165,11 +165,9 @@ Client.prototype.sendTransaction = function (transaction, privateKey) {
 
 // enable use in both node.js and browser contexts
 var exportObject = {
-    Client: Client
+    Client: Client,
+    utils: utils
 };
-for (var util in utils){
-    exportObject[util] = utils[util];
-}
 
 // node.js
 try {
