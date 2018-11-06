@@ -1,13 +1,78 @@
 'use strict';
 
+// workaround for typescript's terrible support for node.js modules
+var nodeCrypto: any = {
+  createHash: require('crypto').createHash,
+  createDecipheriv: require('crypto').createDecipheriv
+};
+
+var bip39 = require('bip39');
 var EthTx = require('ethereumjs-tx');
-
 var ethUtil = require('ethereumjs-util');
-
+var HDKey = require('hdkey');
 var values = require('./values');
-
 var wanUtil = require('wanchain-util');
 var WanTx = wanUtil.wanchainTx;
+
+var decipherBuffer = function (decipher: any, data: Buffer): Buffer {
+  return Buffer.concat([decipher.update(data), decipher.final()]);
+}
+
+// adapted from https://github.com/kvhnuke/etherwallet/blob/de536ffebb4f2d1af892a32697e89d1a0d906b01/app/scripts/myetherwallet.js#L284
+var decodeCryptojsSalt = function (input: string): any {
+  const ciphertext = new Buffer(input, 'base64');
+  console.log(ciphertext.slice(0, 8).toString());
+  if (ciphertext.slice(0, 8).toString() === 'Salted__') {
+    return {
+      salt: ciphertext.slice(8, 16),
+      ciphertext: ciphertext.slice(16)
+    };
+  } else {
+    return {
+      ciphertext
+    };
+  }
+}
+
+var decryptMnemonicToPrivateKey = function (
+  phrase: string,
+  pass: string,
+  path: string,
+  address: string
+): Buffer {
+  phrase = phrase.trim();
+  address = values.stripHexPrefixAndLower(address);
+
+  if (!bip39.validateMnemonic(phrase)) {
+    throw new Error('Invalid mnemonic');
+  }
+
+  const seed = bip39.mnemonicToSeed(phrase, pass);
+  const derived = HDKey.fromMasterSeed(seed).derive(path);
+  const dPrivKey = derived.privateKey;
+  const dAddress = ethUtil.privateToAddress(dPrivKey).toString('hex');
+
+  if (dAddress !== address) {
+    throw new Error(`Derived ${dAddress}, expected ${address}`);
+  }
+
+  return dPrivKey;
+}
+
+// adapted from https://github.com/kvhnuke/etherwallet/blob/de536ffebb4f2d1af892a32697e89d1a0d906b01/app/scripts/myetherwallet.js#L230
+var decryptPrivateKey = function(encryptedPrivateKey: string, password: string): Buffer {
+  const cipher = encryptedPrivateKey.slice(0, 128);
+  const decryptedCipher = decodeCryptojsSalt(cipher);
+  const evp = evp_kdf(new Buffer(password), decryptedCipher.salt, {
+    keysize: 32,
+    ivsize: 16
+  });
+
+  const decipher = nodeCrypto.createDecipheriv('aes-256-cbc', evp.key, evp.iv);
+  const privKey = decipherBuffer(decipher, new Buffer(decryptedCipher.ciphertext));
+
+  return new Buffer(privKey.toString(), 'hex');
+}
 
 /**
  * Computes a sha3-256 hash of the serialized tx
@@ -92,6 +157,38 @@ var ethSignRawTransactionWithPrivateKey = function(tx: any, privateKey: Buffer):
   tx.sign(privateKey);
   return tx.serialize();
 };
+
+// adapted from https://github.com/kvhnuke/etherwallet/blob/de536ffebb4f2d1af892a32697e89d1a0d906b01/app/scripts/myetherwallet.js#L297
+var evp_kdf = function (data: Buffer, salt: Buffer, opts: any) {
+  // A single EVP iteration, returns `D_i`, where block equlas to `D_(i-1)`
+
+  function iter(block: Buffer) {
+    let hash = nodeCrypto.createHash(opts.digest || 'md5');
+    hash.update(block);
+    hash.update(data);
+    hash.update(salt);
+    block = hash.digest();
+    for (let e = 1; e < (opts.count || 1); e++) {
+      hash = nodeCrypto.createHash(opts.digest || 'md5');
+      hash.update(block);
+      block = hash.digest();
+    }
+    return block;
+  }
+  const keysize = opts.keysize || 16;
+  const ivsize = opts.ivsize || 16;
+  const ret: any[] = [];
+  let i = 0;
+  while (Buffer.concat(ret).length < keysize + ivsize) {
+    ret[i] = iter(i === 0 ? new Buffer(0) : ret[i - 1]);
+    i++;
+  }
+  const tmp = Buffer.concat(ret);
+  return {
+    key: tmp.slice(0, keysize),
+    iv: tmp.slice(keysize, keysize + ivsize)
+  };
+}
 
 interface ISignedMessage {
   address: string;
@@ -183,10 +280,13 @@ var wanToChecksumAddress = function (address: string): string {
 var sharedUtils: any = {
   addHexPrefix: ethUtil.addHexPrefix,
   bufferToHex: ethUtil.bufferToHex,
+  decryptMnemonicToPrivateKey: decryptMnemonicToPrivateKey,
+  decryptPrivateKey: decryptPrivateKey,
   ecsign: ethUtil.ecsign,
   hashPersonalMessage: ethUtil.hashPersonalMessage,
   isValidPrivateKey: ethUtil.isValidPrivate,
   padToEven: ethUtil.padToEven,
+  privateToAddress: ethUtil.privateToAddress,
   sha256: ethUtil.sha256,
   sha3: ethUtil.sha3,      
   stripHexPrefix: ethUtil.stripHexPrefix,
@@ -205,6 +305,7 @@ var exportObject: any = {
   },    
 
   wan: {
+    decryptMnemonicToPrivateKey: decryptMnemonicToPrivateKey,
     signRawTransaction: wanSignRawTransactionWithPrivateKey,
     toChecksumAddress: wanToChecksumAddress,
     Tx: WanTx
@@ -221,5 +322,5 @@ for (var network in exportObject){
 try {
   module.exports = exportObject;
 } catch (exception){
-  console.log('node.js error: ' + exception.message);
+  console.log('node.js utils export error: ' + exception.message);
 }
