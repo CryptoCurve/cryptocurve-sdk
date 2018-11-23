@@ -1,78 +1,16 @@
 'use strict';
 
-// workaround for typescript's terrible support for node.js modules
-var nodeCrypto: any = {
-  createHash: require('crypto').createHash,
-  createDecipheriv: require('crypto').createDecipheriv
-};
-
-var bip39 = require('bip39');
 var EthTx = require('ethereumjs-tx');
 var ethUtil = require('ethereumjs-util');
-var HDKey = require('hdkey');
+var uts46 = require('idna-uts46');
 var values = require('./values');
 var wanUtil = require('wanchain-util');
 var WanTx = wanUtil.wanchainTx;
 
-var decipherBuffer = function (decipher: any, data: Buffer): Buffer {
-  return Buffer.concat([decipher.update(data), decipher.final()]);
-}
-
-// adapted from https://github.com/kvhnuke/etherwallet/blob/de536ffebb4f2d1af892a32697e89d1a0d906b01/app/scripts/myetherwallet.js#L284
-var decodeCryptojsSalt = function (input: string): any {
-  const ciphertext = new Buffer(input, 'base64');
-  console.log(ciphertext.slice(0, 8).toString());
-  if (ciphertext.slice(0, 8).toString() === 'Salted__') {
-    return {
-      salt: ciphertext.slice(8, 16),
-      ciphertext: ciphertext.slice(16)
-    };
-  } else {
-    return {
-      ciphertext
-    };
-  }
-}
-
-var decryptMnemonicToPrivateKey = function (
-  phrase: string,
-  pass: string,
-  path: string,
-  address: string
-): Buffer {
-  phrase = phrase.trim();
-  address = values.stripHexPrefixAndLower(address);
-
-  if (!bip39.validateMnemonic(phrase)) {
-    throw new Error('Invalid mnemonic');
-  }
-
-  const seed = bip39.mnemonicToSeed(phrase, pass);
-  const derived = HDKey.fromMasterSeed(seed).derive(path);
-  const dPrivKey = derived.privateKey;
-  const dAddress = ethUtil.privateToAddress(dPrivKey).toString('hex');
-
-  if (dAddress !== address) {
-    throw new Error(`Derived ${dAddress}, expected ${address}`);
-  }
-
-  return dPrivKey;
-}
-
-// adapted from https://github.com/kvhnuke/etherwallet/blob/de536ffebb4f2d1af892a32697e89d1a0d906b01/app/scripts/myetherwallet.js#L230
-var decryptPrivateKey = function(encryptedPrivateKey: string, password: string): Buffer {
-  const cipher = encryptedPrivateKey.slice(0, 128);
-  const decryptedCipher = decodeCryptojsSalt(cipher);
-  const evp = evp_kdf(new Buffer(password), decryptedCipher.salt, {
-    keysize: 32,
-    ivsize: 16
-  });
-
-  const decipher = nodeCrypto.createDecipheriv('aes-256-cbc', evp.key, evp.iv);
-  const privKey = decipherBuffer(decipher, new Buffer(decryptedCipher.ciphertext));
-
-  return new Buffer(privKey.toString(), 'hex');
-}
+var ensNormalise = function(name: string): string {
+  // NOTE: removed try catch, shouldn't have any impact
+  return uts46.toUnicode(name, { useStd3ASCII: true, transitional: false });
+};
 
 /**
  * Computes a sha3-256 hash of the serialized tx
@@ -106,6 +44,25 @@ var ethHash = function(t: any) {
   // console.log(items);
 
   return ethUtil.rlphash(items);
+};
+
+var ethIsChecksumAddress = function(address: string): boolean{
+  return address === ethUtil.toChecksumAddress(address);
+}
+
+var ethIsValidAddress = function(address: string): boolean {
+  if (address === '0x0000000000000000000000000000000000000000') {
+    return false;
+  }
+  if (address.substring(0, 2) !== '0x') {
+    return false;
+  } else if (!/^(0x)?[0-9a-f]{40}$/i.test(address)) {
+    return false;
+  } else if (/^(0x)?[0-9a-f]{40}$/.test(address) || /^(0x)?[0-9A-F]{40}$/.test(address)) {
+    return true;
+  } else {
+    return ethIsChecksumAddress(address);
+  }
 };
 
 /**
@@ -151,44 +108,18 @@ var ethSignMessageWithPrivateKey = function(msg: string, privateKey: Buffer): st
  * @param {Buffer} privateKey
  * @return {Buffer}
  */
-var ethSignRawTransactionWithPrivateKey = function(tx: any, privateKey: Buffer): Buffer {
+var ethSignRawTransactionWithPrivateKey = function(t: any, privateKey: Buffer | string): Buffer {
+
+  // TODO: does data need a 0x prefix like the 'to' property?
+  // TODO: t.data || "";
+  privateKey = marshalToBuffer(ethUtil.addHexPrefix(privateKey));
+  t.gas = t.gasLimit;
+
   // TODO can we check if the transaction is already an EthTx instance?
-  tx = new EthTx(tx);
+  var tx = new EthTx(t);
   tx.sign(privateKey);
   return tx.serialize();
 };
-
-// adapted from https://github.com/kvhnuke/etherwallet/blob/de536ffebb4f2d1af892a32697e89d1a0d906b01/app/scripts/myetherwallet.js#L297
-var evp_kdf = function (data: Buffer, salt: Buffer, opts: any) {
-  // A single EVP iteration, returns `D_i`, where block equlas to `D_(i-1)`
-
-  function iter(block: Buffer) {
-    let hash = nodeCrypto.createHash(opts.digest || 'md5');
-    hash.update(block);
-    hash.update(data);
-    hash.update(salt);
-    block = hash.digest();
-    for (let e = 1; e < (opts.count || 1); e++) {
-      hash = nodeCrypto.createHash(opts.digest || 'md5');
-      hash.update(block);
-      block = hash.digest();
-    }
-    return block;
-  }
-  const keysize = opts.keysize || 16;
-  const ivsize = opts.ivsize || 16;
-  const ret: any[] = [];
-  let i = 0;
-  while (Buffer.concat(ret).length < keysize + ivsize) {
-    ret[i] = iter(i === 0 ? new Buffer(0) : ret[i - 1]);
-    i++;
-  }
-  const tmp = Buffer.concat(ret);
-  return {
-    key: tmp.slice(0, keysize),
-    iv: tmp.slice(keysize, keysize + ivsize)
-  };
-}
 
 interface ISignedMessage {
   address: string;
@@ -223,32 +154,107 @@ var ethVerifySignedMessage = function(msgObject: ISignedMessage) : Boolean {
   return address === computedAddress;
 };
 
+/*export function isValidBTCAddress(address: string): boolean {
+  return WalletAddressValidator.validate(address, 'BTC');
+}*/
+
+var isValidENSorEtherAddress = function(address: string): boolean {
+  return ethIsValidAddress(address) || isValidENSAddress(address);
+}
+
+var isValidENSName = function(str: string) {
+  try {
+    return str.length > 6 && ensNormalise(str) !== '' && str.substring(0, 2) !== '0x';
+  } catch (e) {
+    return false;
+  }
+}
+
+var isValidENSAddress = function (address: string): boolean {
+  try {
+    const normalized = ensNormalise(address);
+    const tld = normalized.substr(normalized.lastIndexOf('.') + 1);
+    const validTLDs = {
+      eth: true,
+      test: true,
+      reverse: true
+    };
+    if (validTLDs[tld as keyof typeof validTLDs]) {
+      return true;
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+};
+
+var isValidHex = function (str: string): boolean {
+  if (str === '') {
+    return true;
+  }
+  str = str.substring(0, 2) === '0x' ? str.substring(2).toUpperCase() : str.toUpperCase();
+  const re = /^[0-9A-F]*$/g; // Match 0 -> unlimited times, 0 being "0x" case
+  return re.test(str);
+};
+
+var wanIsChecksumAddress = function(address: string): boolean{
+  return address === wanToChecksumAddress(address);
+}
+
+var wanIsValidAddress = function(address: string): boolean {
+  if (address === '0x0000000000000000000000000000000000000000') {
+    return false;
+  }
+  if (address.substring(0, 2) !== '0x') {
+    return false;
+  } else if (!/^(0x)?[0-9a-f]{40}$/i.test(address)) {
+    return false;
+    /*} else if (/^(0x)?[0-9a-f]{40}$/.test(address) || /^(0x)?[0-9A-F]{40}$/.test(address)) {
+    return true;*/
+  } else {
+    return wanIsChecksumAddress(address);
+  }
+};
+
+var marshalToBuffer = function(value: any): Buffer{
+  if (Buffer.isBuffer(value)){
+    return value;
+  }
+  return ethUtil.toBuffer(value);
+};
+
+var marshalToInt = function(value: Buffer|Number): Number{
+  if (!Buffer.isBuffer(value)){
+    return value;
+  }
+  return ethUtil.bufferToInt(value);
+};
+
 /**
  * sign a transaction with a given a private key
  * @param {EthTx} t
- * @param {Buffer} privateKey
+ * @param {Buffer|string} privateKey
  * @return {Buffer}
  */
-var wanSignRawTransactionWithPrivateKey = function(t: any, privateKey: Buffer): Buffer {
-    // to, data: if it's not a buffer then convert it
-    if (!Buffer.isBuffer(t.to)){
-        t.to = ethUtil.toBuffer(t.to);
-    }
-    if (!Buffer.isBuffer(t.data)){
-        // TODO: does this need a 0x prefix like the 'to' property?
-        //t.data = t.data || "";
-        t.data = ethUtil.toBuffer(t.data);
-    }
-    
+var wanSignRawTransactionWithPrivateKey = function(t: any, privateKey: Buffer | string): Buffer {
+
+    t.from = marshalToBuffer(t.from);
+    t.to = marshalToBuffer(t.to);
+    // TODO: does data need a 0x prefix like the 'to' property?
+    // TODO: t.data || "";
+    t.data = marshalToBuffer(t.data);
+    privateKey = marshalToBuffer(ethUtil.addHexPrefix(privateKey));
+
     let rawTx = {
         Txtype: 0x01,
-        nonce: ethUtil.bufferToInt(t.nonce),
-        gasPrice: 200000000000, //bufferToInt(t.gasPrice),
-        gasLimit: 47000, //bufferToInt(t.gasLimit),
-        to: wanUtil.toChecksumAddress('0x' + t.to.toString('hex')), //contract address
-        value: ethUtil.bufferToInt(t.value),
+        nonce: marshalToInt(t.nonce),
+        gasPrice: marshalToInt(t.gasPrice), // 200000000000,
+        gasLimit: marshalToInt(t.gasLimit), // 47000,
+        from: wanUtil.toChecksumAddress('0x' + t.from.toString('hex')),
+        to: wanUtil.toChecksumAddress('0x' + t.to.toString('hex')),
+        value: marshalToInt(t.value),
         data: '0x' + t.data.toString('hex'),
-        chainId: t._chainId
+        chainId: t._chainId || t.chainId
     };
     // console.log('wan wanSignRawTxWithPrivKey rawTx ' + rawTx);
     let tx = new WanTx(rawTx);
@@ -280,10 +286,9 @@ var wanToChecksumAddress = function (address: string): string {
 var sharedUtils: any = {
   addHexPrefix: ethUtil.addHexPrefix,
   bufferToHex: ethUtil.bufferToHex,
-  decryptMnemonicToPrivateKey: decryptMnemonicToPrivateKey,
-  decryptPrivateKey: decryptPrivateKey,
   ecsign: ethUtil.ecsign,
   hashPersonalMessage: ethUtil.hashPersonalMessage,
+  isValidHex: isValidHex,
   isValidPrivateKey: ethUtil.isValidPrivate,
   padToEven: ethUtil.padToEven,
   privateToAddress: ethUtil.privateToAddress,
@@ -296,6 +301,8 @@ var sharedUtils: any = {
 var exportObject: any = {
   eth: {
     hash: ethHash,
+    isChecksumAddress: ethIsChecksumAddress,
+    isValidAddress: ethIsValidAddress,
     signTransaction: ethSign,
     signRawTransaction: ethSignRawTransactionWithPrivateKey,
     signMessage: ethSignMessageWithPrivateKey,
@@ -305,7 +312,8 @@ var exportObject: any = {
   },    
 
   wan: {
-    decryptMnemonicToPrivateKey: decryptMnemonicToPrivateKey,
+    isChecksumAddress: wanIsChecksumAddress,
+    isValidAddress: wanIsValidAddress,
     signRawTransaction: wanSignRawTransactionWithPrivateKey,
     toChecksumAddress: wanToChecksumAddress,
     Tx: WanTx

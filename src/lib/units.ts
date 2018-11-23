@@ -39,10 +39,17 @@ var units: any = {
 };
 
 /**
- * @param {string} name
+ * @param {string} name unit name
+ * @param {string} source source network
+ * @param {string} source target network
+ * convert unit name to unit on the target network
+ * primarily used to employ ethereum function toWei
  */
-var convert = function(name: string, source: string, target: string): string{
+var convert = function(name: string, source: string, target?: string): string{
+  target = target || 'eth';
+  // get value of named unit on source network
   var value: string = units[source][name];
+  // find first match on the target network
   for (var match in units[target]){
     if (value == units[target][match]){
       return match;

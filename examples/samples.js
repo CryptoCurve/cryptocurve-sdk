@@ -97,22 +97,30 @@ sdk.eth.getAccounts(function (error, result){
 });
         `
     },
-    "Get and set default sending account for transactions": {
+    "Set default sending account for unsigned transactions": {
         code: `
 // see <a href="https://web3js.readthedocs.io/en/1.0/web3-eth.html#defaultaccount">https://web3js.readthedocs.io/en/1.0/web3-eth.html#defaultaccount</a>
 setResult(sdk.eth.defaultAccount, 'before');
 
-// based on <a href="https://github.com/ethereum/go-ethereum/wiki/Managing-your-accounts#checking-account-balances">https://github.com/ethereum/go-ethereum/wiki/Managing-your-accounts#checking-account-balances</a>
-// set the default account to the account with the most ether
+// set the default account to the client node account with the most ether
 
-var accountsTotal, accountsChecked = 0;
+var accountsTotal = 0, accountsChecked = 0;
+var accountBalances = {};
+
 sdk.eth.getAccounts(function (error, accounts) {
     if (error){ return handleException(error); }
 
-    accountsTotal = accounts.length;
+    // add accounts to accountBalances
+    for (var i in accounts){
+        var address = accounts[i];
+        if (!accountBalances[address]) {
+            accountBalances[address] = sdk.utils.toBN(0);
+            accountsTotal++;
+        }
+    }
 
-    for (var i in accounts) {
-        getBalance(accounts[i]);
+    for (var address in accountBalances) {
+        getBalance(address);
     }
 });
 
@@ -124,24 +132,31 @@ var getBalance = function(address){
 };
 
 var newDefaultAccount,
-    maxBalance = sdk.utils.toBN(0),
     total = sdk.utils.toBN(0);
 
 var getMaxAndTotal = function(address, balance){
     balance = sdk.utils.toBN(balance);
-    total.add(balance);
+    accountBalances[address] = balance;
+    total = total.add(balance);
 
-    // if balance >= maxBalance update the max
-    if (balance.gte(maxBalance)){
-        newDefaultAccount = address;
-        maxBalance = balance;
-    }
-    
     accountsChecked++;
     // display the result once the accounts have all been checked
     if (accountsChecked == accountsTotal) {
+        
+        for (var address in accountBalances){
+            if (!newDefaultAccount) {
+                newDefaultAccount = address;
+            } else {
+                if (accountBalances[address].gte(accountBalances[newDefaultAccount])) {
+                    newDefaultAccount = address;
+                }
+        }
+        }
+
         sdk.eth.defaultAccount = newDefaultAccount;
         setFinalResult(sdk.eth.defaultAccount, 'after');
+        setFinalResult(accountBalances[newDefaultAccount], 'balance');
+        setFinalResult(total, 'total');
     }
 };
        `,
@@ -149,11 +164,80 @@ var getMaxAndTotal = function(address, balance){
             setResult(`
                 <div id="before"></div>
                 <div id="after"></div>
+                <div id="balance"></div>
+                <div id="total"></div>
+            `);
+        }
+    },
+    "Set default sending account for signed transactions": {
+        code: `
+// see <a href="https://web3js.readthedocs.io/en/1.0/web3-eth.html#defaultaccount">https://web3js.readthedocs.io/en/1.0/web3-eth.html#defaultaccount</a>
+setResult(sdk.eth.defaultAccount, 'before');
+
+// set the default account to the test account with the most ether
+
+var accountsTotal = 0, accountsChecked = 0;
+var accountBalances = {};
+var testAccountAddressess = Object.keys(testAccounts.eth);
+// initialize accountBalances with test accounts
+for (var i in testAccountAddressess){
+    var address = testAccountAddressess[i];
+    accountBalances[address] = sdk.utils.toBN(0);
+    accountsTotal++;
+}
+
+var getBalance = function(address){
+    sdk.eth.getBalance(address)
+    .then(function(balance){
+        getMaxAndTotal(address, balance);
+    });
+};
+
+for (var address in accountBalances) {
+    getBalance(address);
+}
+
+var newDefaultAccount,
+    total = sdk.utils.toBN(0);
+
+var getMaxAndTotal = function(address, balance){
+    balance = sdk.utils.toBN(balance);
+    accountBalances[address] = balance;
+    total = total.add(balance);
+
+    accountsChecked++;
+    // display the result once the accounts have all been checked
+    if (accountsChecked == accountsTotal) {
+        for (var address in accountBalances){
+            if (!newDefaultAccount) {
+                newDefaultAccount = address;
+            } else {
+                if (accountBalances[address].gte(accountBalances[newDefaultAccount])) {
+                    newDefaultAccount = address;
+                }
+            }
+        }
+
+        sdk.eth.defaultAccount = newDefaultAccount;
+        setFinalResult(sdk.eth.defaultAccount, 'after');
+        setFinalResult(accountBalances[newDefaultAccount], 'balance');
+        setFinalResult(total, 'total');
+    }
+};
+       `,
+        init: function(){
+            setResult(`
+                <div id="before"></div>
+                <div id="after"></div>
+                <div id="balance"></div>
+                <div id="total"></div>
             `);
         }
     },
     "Check all account balances": {
         code: `
+// TODO merge accounts from node with test accounts
+
 var accountsTotal, accountsChecked = 0;
 sdk.eth.getAccounts(function (error, accounts) {
     if (error){ return handleException(error); }
@@ -218,38 +302,6 @@ for (var accountAddress in testAccounts.eth) {
 }
 setResult(targetAccount, 'targetAccount');
 
-// get gas price
-
-// NOTE: it might be better to retrieve the price from <a href="https://ethgasstation.info/">https://ethgasstation.info/</a>
-// see <a href="https://github.com/ethereum/go-ethereum/issues/15825#issuecomment-355872594">https://github.com/ethereum/go-ethereum/issues/15825#issuecomment-355872594</a>
-
-// set gas limit (21000 is the standard)
-var gasLimit = 21000;
-
-// set gas price (gas price returned in GWEI)
-var gasPrice;
-sdk.eth.getGasPrice()
-    .then(function(price){
-        gasPrice = price * 1e9;
-        setResult('price: ' + gasPrice + ' limit: ' + gasLimit, 'gas');
-    });
-
-// get the chainId (to prevent replay attacks)
-var chainId;
-sdk.eth.net.getId()
-    .then(function(result){
-        chainId = result;
-        setResult(chainId  + ' <a href="#networkversionhelp">(?)</a>', 'chainId');
-    });
-
-// set transaction identifier
-var nonce;
-sdk.eth.getTransactionCount(sourceAccount)
-    .then(function(result){
-        nonce = result;
-        setResult(nonce, 'nonce');
-    });
-
 // determine initial balances
 
 sdk.eth.getBalance(sourceAccount)
@@ -269,78 +321,69 @@ sdk.eth.getBalance(targetAccount)
     });
 
 // set amount of ether to be transferred
-var valueEther = 0.001;
+var valueEther = '0.001';
 var valueWei = sdk.utils.toWei('0.001', "ether");
 var valueHex = sdk.utils.toHex(valueWei);
 setResult(valueEther + 'eth ' + valueWei + 'wei ' + valueHex, 'valueToBeSent');
 
-var sendWhenReady = function(){
-    var ready = gasPrice != null && chainId != null && nonce != null;
-    
-    if (!ready){
-        setResult('waiting for all transaction data before sending...', 'transaction');
-        setTimeout(sendWhenReady, 250)
-    } else {
-        setResult('sending...', 'transaction');
-        // create transaction
-        var transaction = {
-            "network": "eth", // or "ethereum", "wan", "wanchain"
-            "from": sourceAccount, // required
-            "to": targetAccount, // required
-            "value": sdk.utils.toHex(valueWei), // required
-            "gas": sdk.utils.toHex(gasLimit),
-            "gasLimit": sdk.utils.toHex(gasLimit),
-            "gasPrice": sdk.utils.toHex(gasPrice),
-            "chainId": sdk.version.network,
-            "nonce": sdk.utils.toHex(nonce)
-        };
-        setResult(JSON.stringify(transaction), 'transaction');
-
-        var transactionConfirmations = '';
-        
-        // see <a href="https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction">https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction</a>
-        sdk.sendTransaction(transaction)
-            .on('transactionHash', function(hash){
-                setResult(hash, 'transactionHash');
-            })
-            .on('receipt', function(receipt){
-                setResult(JSON.stringify(receipt), 'transactionReceipt');
-
-                sdk.eth.getBalance(sourceAccount)
-                    .then(function(balance){
-                        setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInSourceAccount');
-                    })
-                    .catch(function(err){
-                        setResult('ERROR: ' + err.message, 'updatedEtherInSourceAccount');
-                    });
-                    
-                sdk.eth.getBalance(targetAccount)
-                    .then(function(balance){
-                        setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInTargetAccount');
-                    })
-                    .catch(function(err){
-                        setResult('ERROR: ' + err.message, 'updatedEtherInTargetAccount');
-                    });
-
-            })
-            .on('confirmation', function(confirmationNumber, receipt){
-                transactionConfirmations +=
-                    '\\n' + confirmationNumber + ': ' + JSON.stringify(receipt) + '\\n';
-                // NOTE: there'll be more confirmation messages but setting this result
-                //       as final allows execution to continue when running this sample
-                //       on node.js  
-                setFinalResult(transactionConfirmations, 'transactionConfirmations');
-            })
-            .on('error', function(error){
-                if (error.message != 'insufficient funds for gas * price + value') {
-                    throw error;
-                }
-                setResult('transaction failed: ' + error.message, 'transactionHash');
-            }); // If a out of gas error, the second parameter is the receipt.
-    }
+setResult('sending...', 'transaction');
+// create transaction
+var transaction = {
+    "network": "eth", // or "ethereum", "wan", "wanchain"
+    "from": sourceAccount, // required
+    "to": targetAccount, // required
+    "value": valueEther, //sdk.utils.toHex(valueWei), // required
+    "denomination": "ether"
 };
+setResult(JSON.stringify(transaction), 'transaction');
 
-sendWhenReady();
+var transactionConfirmations = '';
+
+// see <a href="https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction">https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction</a>
+sdk.sendTransaction(transaction)
+    .on('transactionHash', function(hash){
+        setResult(hash, 'transactionHash');
+    })
+    .on('receipt', function(receipt){
+        setResult(JSON.stringify(receipt), 'transactionReceipt');
+
+        sdk.eth.getBalance(sourceAccount)
+            .then(function(balance){
+                setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInSourceAccount');
+            })
+            .catch(function(err){
+                setResult('ERROR: ' + err.message, 'updatedEtherInSourceAccount');
+            });
+            
+        sdk.eth.getBalance(targetAccount)
+            .then(function(balance){
+                setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInTargetAccount');
+            })
+            .catch(function(err){
+                setResult('ERROR: ' + err.message, 'updatedEtherInTargetAccount');
+            });
+
+    })
+    .on('confirmation', function(confirmationNumber, receipt){
+        transactionConfirmations +=
+            '\\n' + confirmationNumber + ': ' + JSON.stringify(receipt) + '\\n';
+        // NOTE: there'll be more confirmation messages but setting this result
+        //       as final allows execution to continue when running this sample
+        //       on node.js  
+        setFinalResult(transactionConfirmations, 'transactionConfirmations');
+    })
+    .on('error', function(error){
+        if (error.message.indexOf('insufficient funds for gas * price + value') >= 0) {
+            throw error;
+        }
+        setResult('transaction failed: ' + error.message, 'transactionHash');
+    })
+    .catch(function(error){
+        if (error.message.indexOf('insufficient funds for gas * price + value') >= 0) {
+            throw error;
+        }
+        setResult('transaction failed: ' + error.message, 'transactionHash');
+    }); // If a out of gas error, the second parameter is the receipt.
         `,
         init: function(){
             setResult(`
@@ -348,12 +391,9 @@ sendWhenReady();
                 <div id="after"></div>
                 <div id="sourceAccount"></div>
                 <div id="targetAccount"></div>
-                <div id="gas"></div>
                 <div id="initialEtherInSourceAccount"></div>
                 <div id="initialEtherInTargetAccount"></div>
                 <div id="valueToBeSent"></div>
-                <div id="chainId"></div>
-                <div id="nonce"></div>
                 <div id="accountLock"></div>
                 <div id="transaction"></div>
                 <div id="transactionHash"></div>
@@ -391,38 +431,6 @@ for (var accountAddress in testAccounts.eth) {
 }
 setResult(targetAccount, 'targetAccount');
 
-// get gas price
-
-// NOTE: it might be better to retrieve the price from <a href="https://ethgasstation.info/">https://ethgasstation.info/</a>
-// see <a href="https://github.com/ethereum/go-ethereum/issues/15825#issuecomment-355872594">https://github.com/ethereum/go-ethereum/issues/15825#issuecomment-355872594</a>
-
-// set gas limit (21000 is the standard)
-var gasLimit = 21000;
-
-// set gas price (gas price returned in GWEI)
-var gasPrice;
-sdk.eth.getGasPrice()
-    .then(function(price){
-        gasPrice = price * 1e9;
-        setResult('price: ' + gasPrice + ' limit: ' + gasLimit, 'gas');
-    });
-
-// get the chainId (to prevent replay attacks)
-var chainId;
-sdk.eth.net.getId()
-    .then(function(result){
-        chainId = result;
-        setResult(chainId  + ' <a href="#networkversionhelp">(?)</a>', 'chainId');
-    });
-
-// set transaction identifier
-var nonce;
-sdk.eth.getTransactionCount(sourceAccount)
-    .then(function(result){
-        nonce = result;
-        setResult(nonce, 'nonce');
-    });
-
 // determine initial balances
 
 sdk.eth.getBalance(sourceAccount)
@@ -447,74 +455,65 @@ var valueWei = sdk.utils.toWei('0.001', "ether");
 var valueHex = sdk.utils.toHex(valueWei);
 setResult(valueEther + 'eth ' + valueWei + 'wei ' + valueHex, 'valueToBeSent');
 
-var sendWhenReady = function(){
-    var ready = gasPrice != null && chainId != null && nonce != null;
-    
-    if (!ready){
-        setResult('waiting for all transaction data before sending...', 'transaction');
-        setTimeout(sendWhenReady, 250)
-    } else {
-        setResult('sending...', 'transaction');
-        // create transaction
-        var transaction = {
-            "network": "eth", // or "ethereum", "wan", "wanchain"
-            "from": sourceAccount, // required
-            "to": targetAccount, // required
-            "value": sdk.utils.toHex(valueWei), // required
-            "gas": sdk.utils.toHex(gasLimit),
-            "gasLimit": sdk.utils.toHex(gasLimit),
-            "gasPrice": sdk.utils.toHex(gasPrice),
-            "chainId": sdk.version.network,
-            "nonce": sdk.utils.toHex(nonce)
-        };
-        setResult(JSON.stringify(transaction), 'transaction');
-
-        var transactionConfirmations = '';
-        
-        // see <a href="https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction">https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction</a>
-        sdk.sendTransaction(transaction, privateKey)
-            .on('transactionHash', function(hash){
-                setResult(hash, 'transactionHash');
-            })
-            .on('receipt', function(receipt){
-                setResult(JSON.stringify(receipt), 'transactionReceipt');
-
-                sdk.eth.getBalance(sourceAccount)
-                    .then(function(balance){
-                        setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInSourceAccount');
-                    })
-                    .catch(function(err){
-                        setResult('ERROR: ' + err.message, 'updatedEtherInSourceAccount');
-                    });
-                    
-                sdk.eth.getBalance(targetAccount)
-                    .then(function(balance){
-                        setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInTargetAccount');
-                    })
-                    .catch(function(err){
-                        setResult('ERROR: ' + err.message, 'updatedEtherInTargetAccount');
-                    });
-
-            })
-            .on('confirmation', function(confirmationNumber, receipt){
-                transactionConfirmations +=
-                    '\\n' + confirmationNumber + ': ' + JSON.stringify(receipt) + '\\n';
-                // NOTE: there'll be more confirmation messages but setting this result
-                //       as final allows execution to continue when running this sample
-                //       on node.js  
-                setFinalResult(transactionConfirmations, 'transactionConfirmations');
-            })
-            .on('error', function(error){
-                if (error.message != 'insufficient funds for gas * price + value') {
-                    throw error;
-                }
-                setResult('transaction failed: ' + error.message, 'transactionHash');
-            }); // If a out of gas error, the second parameter is the receipt.
-    }
+setResult('sending...', 'transaction');
+// create transaction
+var transaction = {
+    "network": "eth", // or "ethereum", "wan", "wanchain"
+    "from": sourceAccount, // required
+    "to": targetAccount, // required
+    "value": '0.001', // required
+    "denomination": 'ether'
 };
+setResult(JSON.stringify(transaction), 'transaction');
 
-sendWhenReady();
-        `,
+var transactionConfirmations = '';
+
+// see <a href="https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction">https://web3js.readthedocs.io/en/1.0/web3-eth.html?highlight=sendtransaction#sendtransaction</a>
+sdk.sendTransaction(transaction, privateKey)
+    .on('transactionHash', function(hash){
+        setResult(hash, 'transactionHash');
+    })
+    .on('receipt', function(receipt){
+        setResult(JSON.stringify(receipt), 'transactionReceipt');
+
+        sdk.eth.getBalance(sourceAccount)
+            .then(function(balance){
+                setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInSourceAccount');
+            })
+            .catch(function(err){
+                setResult('ERROR: ' + err.message, 'updatedEtherInSourceAccount');
+            });
+            
+        sdk.eth.getBalance(targetAccount)
+            .then(function(balance){
+                setResult(sdk.utils.fromWei(balance, "ether"), 'updatedEtherInTargetAccount');
+            })
+            .catch(function(err){
+                setResult('ERROR: ' + err.message, 'updatedEtherInTargetAccount');
+            });
+
+    })
+    .on('confirmation', function(confirmationNumber, receipt){
+        transactionConfirmations +=
+            '\\n' + confirmationNumber + ': ' + JSON.stringify(receipt) + '\\n';
+        // NOTE: there'll be more confirmation messages but setting this result
+        //       as final allows execution to continue when running this sample
+        //       on node.js  
+        setFinalResult(transactionConfirmations, 'transactionConfirmations');
+    })
+    .on('error', function(error){
+        if (error.message.indexOf('insufficient funds for gas * price + value') >= 0) {
+            throw error;
+        }
+        setResult('transaction failed: ' + error.message, 'transactionHash');
+    })
+    .catch(function(error){
+        if (error.message.indexOf('insufficient funds for gas * price + value') >= 0) {
+            throw error;
+        }
+        setResult('transaction failed: ' + error.message, 'transactionHash');
+    }); // If a out of gas error, the second parameter is the receipt.
+    `,
         init: function(){
             setResult(`
                 <div id="before"></div>
@@ -522,12 +521,9 @@ sendWhenReady();
                 <div id="sourceAccount"></div>
                 <div id="privateKey"></div>
                 <div id="targetAccount"></div>
-                <div id="gas"></div>
                 <div id="initialEtherInSourceAccount"></div>
                 <div id="initialEtherInTargetAccount"></div>
                 <div id="valueToBeSent"></div>
-                <div id="chainId"></div>
-                <div id="nonce"></div>
                 <div id="accountLock"></div>
                 <div id="transaction"></div>
                 <div id="transactionHash"></div>

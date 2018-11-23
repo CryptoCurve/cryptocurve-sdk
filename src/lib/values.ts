@@ -1,3 +1,5 @@
+'use strict';
+
 var values : any = {
   stripHexPrefix: function(value: string): string {
     return value.replace('0x', '');
@@ -10,5 +12,5 @@ var values : any = {
 try {
   module.exports = values;
 } catch (exception){
-  console.log('node.js error: ' + exception.message);
+  console.log('node.js values export error: ' + exception.message);
 }

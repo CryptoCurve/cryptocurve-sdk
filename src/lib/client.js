@@ -1,6 +1,8 @@
 'use strict';
 
 var Web3 = require('web3');
+var Web3PromiEvent = require('web3-core-promievent');
+var transactions = require('./transactions');
 var utils = require('./utils');
 var units = require('./units');
 
@@ -52,86 +54,118 @@ Client.prototype.setProviderWrapper = function(host, timeout, username, password
     self.currentProvider = self.web3.currentProvider;
 };
 
-/**
- * convert transaction values to the correct format
- */
-Client.prototype.fixTransactionValues = function(transaction) {
-    var self = this;
-
-    // TODO ensure we have gasprice and nonce
-
-    for (var property in transaction){
-        switch (property){
-            case "value":
-                var denomination = transaction.denomination || 'wei';
-                denomination = units.convert(denomination, transaction.network, 'eth');
-
-                if (!self.utils.isHex(transaction.value)){
-                    if (!self.utils.isBN(transaction.value)){
-                        // see https://web3js.readthedocs.io/en/1.0/web3-utils.html#towei
-                        transaction.value = self.utils.toWei(transaction.value, denomination);
-                    }
-                    transaction.value = self.utils.toHex(transaction.value);
-                }
-                break;
-            case "gas":
-            case "gasLimit":
-            case "gasPrice":
-            case "nonce":
-                if (!self.utils.isHex(transaction[property])){
-                    transaction[property] = self.utils.toHex(transaction[property]);
-                }
-                break;
-            break;
-        }
+ /**
+  * error wrapping to provide more details where possible
+  * @param {Client} client 
+  * @param {Transaction} transaction 
+  * @param {*} promiEvent 
+  * @param {Error} error 
+  * @param {string} action 'emit' or 'reject', if null method will return the processed error 
+  */
+var transactionErrorWrapper = function(client, transaction, promiEvent, error, action){
+    if (!action){
+        throw new Error('invalid errorWrapper for error: ' + error.message);
     }
 
-    // ensure we have data
-    transaction.data = transaction.data || "";
+    // add clarification for insufficient funds error
+    if (error.message.indexOf('insufficient funds for gas * price + value') >= 0){
+        // check balance to see if funds are really insufficient, or if this
+        // could possibly be a signing issue
+        var gasLimit = Web3.utils.toBN(transaction.gasLimit);
+        var gasPrice = Web3.utils.toBN(transaction.gasPrice);
+        var value = Web3.utils.toBN(transaction.value);
+        var cost = (gasLimit.mul(gasPrice)).add(value);
 
-    return transaction;
+        client.eth.getBalance(transaction.from)
+            .then(function(balance){
+                balance = Web3.utils.toBN(balance);
+                if (balance.gte(cost)){
+                    error.message =
+                        'insufficient funds reported but funds appear sufficient, possibly a signing error';;
+                } else {
+                    error.message =
+                        'insufficient funds for gas * price + value (' +
+                        transaction.gasLimit + ' * ' +
+                        transaction.gasPrice + ' + ' +
+                        transaction.value + ')'
+                    ;
+                }
+                switch (action){
+                    case 'emit':
+                        promiEvent.eventEmitter.emit('error', error);
+                        break;
+                    case 'reject':
+                        promiEvent.reject(error);
+                        break;
+                }                
+            });
+    } else {
+        switch (action){
+            case 'emit':
+                promiEvent.eventEmitter.emit('error', error);
+                break;
+            case 'reject':
+                promiEvent.reject(error);
+                break;
+        }    
+    }
 };
 
-/**
- * send signed or unsigned transaction on ethereum network
- */
-Client.prototype.sendEthTransaction = function(transaction, privateKey){
-    var self = this;
+var sendUnsignedTransaction = function(client, transaction, promiEvent){
+    client.eth.sendTransaction(transaction.getTransportTransaction())
+        .on('transactionHash', function(hash){
+            promiEvent.eventEmitter.emit('transactionHash', hash);
+        })
+        .on('receipt', function(receipt){
+            promiEvent.eventEmitter.emit('receipt', receipt);
+        })
+        .on('confirmation', function(confirmationNumber, receipt){
+            promiEvent.eventEmitter.emit('confirmation', confirmationNumber, receipt);
+        })
+        .on('error', function(error){
+            transactionErrorWrapper(client, transaction, promiEvent, error, 'emit');
+        })
+        .then(function(result){
+            promiEvent.resolve(result);
+        })
+        .catch(function(error){
+            transactionErrorWrapper(client, transaction, promiEvent, error, 'reject');
+        })
+        ;
+};
 
-    transaction = self.fixTransactionValues(transaction);
+var sendSignedTransaction = function(client, transaction, promiEvent, privateKey){
+    
+    /*client.eth.accounts.signTransaction(transaction.getTransportTransaction(), privateKey)
+        .then(function(signedTransaction){
+        });*/
 
-    if (privateKey){
-        var signedTransaction = utils.eth.signRawTransaction(transaction, privateKey);
-        return self.eth.sendSignedTransaction(
-            '0x' + signedTransaction.toString('hex')
-        );
+    try {
+        var signedTransaction = transaction.getSignedTransaction(privateKey);
+        client.eth.sendSignedTransaction(signedTransaction)
+            .on('transactionHash', function(hash){
+                promiEvent.eventEmitter.emit('transactionHash', hash);
+            })
+            .on('receipt', function(receipt){
+                promiEvent.eventEmitter.emit('receipt', receipt);
+            })
+            .on('confirmation', function(confirmationNumber, receipt){
+                promiEvent.eventEmitter.emit('confirmation', confirmationNumber, receipt);
+            })
+            .on('error', function(error){
+                transactionErrorWrapper(client, transaction, promiEvent, error, 'emit');
+            })
+            .then(function(result){
+                promiEvent.resolve(result);
+            })
+            .catch(function(error){
+                transactionErrorWrapper(client, transaction, promiEvent, error, 'reject');
+            })
+            ;    
+    } catch (error) {
+        promiEvent.reject(error);
     }
-    return self.eth.sendTransaction(transaction);
-}
-
-/**
- * send signed or unsigned transaction on wanchain network
- */
-Client.prototype.sendWanTransaction = function(transaction, privateKey){
-    var self = this;
-
-    // TODO: currently just passing through to maintain compatibility with
-    //      previous users, must be fixed soon
-
-    // force wan gas values
-    /*transaction.gasPrice = 200000000000;
-    transaction.gasLimit = 47000;
-
-    transaction = self.fixTransactionValues(transaction);*/
-
-    if (privateKey){
-        var signedTransaction = utils.wan.signRawTransaction(transaction, privateKey); 
-        return self.eth.sendSignedTransaction(
-            '0x' + signedTransaction.toString('hex')
-        );
-    }
-    return self.eth.sendTransaction(transaction);
-}
+};
 
 /**
  * entrypoint for sending signed or unsigned transactions on all supported networks
@@ -140,27 +174,48 @@ Client.prototype.sendWanTransaction = function(transaction, privateKey){
 Client.prototype.sendTransaction = function (transaction, privateKey) {
     var self = this;
 
-    // ensure that privateKey is a Buffer if it's been sent
-    if (privateKey && !Buffer.isBuffer(privateKey)){
-        privateKey = utils.eth.toBuffer(utils.eth.addHexPrefix(privateKey));
-    }
+    // we need to use promiEvents to wrap promiEvents
+    var promiEvent = Web3PromiEvent();
 
     // default to eth network
-    transaction.network = transaction.network || 'eth';
+    transaction.network = transaction.network || transactions.NETWORK_ETH;
     switch (transaction.network.toLowerCase()){
         case 'eth':
-        case 'ethereum':
-            transaction.network = 'eth';
-            return self.sendEthTransaction(transaction, privateKey);
+        case 'ethereum': // not recommended, but fine
+            transaction.network = transactions.NETWORK_ETH;
             break;
         case 'wan':
-        case 'wanchain':
-            transaction.network = 'wan';
-            return self.sendWanTransaction(transaction, privateKey);
+        case 'wanchain': // not recommended, but fine
+            transaction.network = transactions.NETWORK_WAN;
             break;
         default:
-            throw new Error('invalid network');
+            promiEvent.reject(new Error('invalid network'));
+            return promiEvent.eventEmitter;
     }
+
+    transactions.createTransaction(self, transaction)
+        .on('invalid', function(property, msg){
+            promiEvent.eventEmitter.emit('error', msg);
+        })
+        .on('error', function(error){
+            promiEvent.eventEmitter.emit('error', error);
+        })
+        .then(function(transaction){
+            var sendTransaction = self.eth.sendTransaction;
+            var transportTransaction = transaction.getTransportTransaction();
+
+            if (privateKey){
+                sendSignedTransaction(self, transaction, promiEvent, privateKey);
+            } else {
+                sendUnsignedTransaction(self, transaction, promiEvent);
+            }
+        })
+        .catch(function(error){
+            promiEvent.reject(error);
+        })
+        ;
+
+        return promiEvent.eventEmitter;
 };
 
 try {
