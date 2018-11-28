@@ -18,6 +18,8 @@ var DEFAULT_HOST = 'http://localhost:8545';
 function Client(host, timeout, username, password) {
     var self = this;
 
+    self.blockchainNetwork = "eth";
+
     var web3 = new Web3();
     
     // make web3 and its methods directly accessible
@@ -31,6 +33,29 @@ function Client(host, timeout, username, password) {
 
     // set the provider
     self.setProvider(host, timeout, username, password);
+}
+
+/**
+ * specify host's blockchain network, can be set in the
+ * transaction object as well
+ */
+Client.prototype.setBlockchainNetwork = function(network){
+    var self = this;
+
+    // default to eth network
+    network = network || transactions.NETWORK_ETH;
+    switch (network.toLowerCase()){
+        case 'eth':
+        case 'ethereum': // not recommended, but fine
+            self.blockchainNetwork = transactions.NETWORK_ETH;
+            break;
+        case 'wan':
+        case 'wanchain': // not recommended, but fine
+            self.blockchainNetwork = transactions.NETWORK_WAN;
+            break;
+        default:
+            throw new Error("invalid network");
+    }
 }
 
 /**
@@ -141,7 +166,7 @@ var sendSignedTransaction = function(client, transaction, promiEvent, privateKey
         });*/
 
     try {
-        var signedTransaction = transaction.getSignedTransaction(privateKey);
+        var signedTransaction = transaction.signTransaction(privateKey);
         client.eth.sendSignedTransaction(signedTransaction)
             .on('transactionHash', function(hash){
                 promiEvent.eventEmitter.emit('transactionHash', hash);
@@ -177,20 +202,17 @@ Client.prototype.sendTransaction = function (transaction, privateKey) {
     // we need to use promiEvents to wrap promiEvents
     var promiEvent = Web3PromiEvent();
 
-    // default to eth network
-    transaction.network = transaction.network || transactions.NETWORK_ETH;
-    switch (transaction.network.toLowerCase()){
-        case 'eth':
-        case 'ethereum': // not recommended, but fine
-            transaction.network = transactions.NETWORK_ETH;
-            break;
-        case 'wan':
-        case 'wanchain': // not recommended, but fine
-            transaction.network = transactions.NETWORK_WAN;
-            break;
-        default:
-            promiEvent.reject(new Error('invalid network'));
+    // network can be specified using the setBlockchainNetwork method or
+    // in the transaction object
+    if (transaction.network){
+        try {
+            self.setBlockchainNetwork(transaction.network);   
+        } catch (error){
+            promiEvent.reject(error);
             return promiEvent.eventEmitter;
+        }
+    } else {
+        transaction.network = self.blockchainNetwork;
     }
 
     transactions.createTransaction(self, transaction)
@@ -201,9 +223,6 @@ Client.prototype.sendTransaction = function (transaction, privateKey) {
             promiEvent.eventEmitter.emit('error', error);
         })
         .then(function(transaction){
-            var sendTransaction = self.eth.sendTransaction;
-            var transportTransaction = transaction.getTransportTransaction();
-
             if (privateKey){
                 sendSignedTransaction(self, transaction, promiEvent, privateKey);
             } else {

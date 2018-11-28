@@ -12,7 +12,7 @@
 <script type="text/javascript" src="samples.js"></script>
 <script type="text/javascript">
 
-    var sdk, nodeHost;
+    var sdk, sdkUtils, nodeHost, blockchainNetwork;
 
     var setResult = function(text, id){
         text = text || '';
@@ -26,6 +26,7 @@
         document.getElementById(id).innerHTML = text;
     };
 
+    // setFinalResult is only different from setResult in a node context
     var setFinalResult = setResult;
 
     var helpErrors = {
@@ -47,6 +48,16 @@
         nodeHost = document.getElementById('newNodeAddress').value;
         sdk.setProvider(nodeHost);
         document.getElementById('nodeAddress').innerHTML = sdk.currentProvider.host;
+    }
+
+    function updateNetwork(){
+        var radios = document.getElementsByName('network');
+
+        for (var i = 0, length = radios.length; i < length; i++) {
+            if (radios[i].checked) {
+                blockchainNetwork = radios[i].value;
+            }
+        }
     }
 
     var currentSample,
@@ -104,8 +115,10 @@
 
     function init(){
         sdk = new window.cryptocurve.sdk.Client();
+        sdkUtils = window.cryptocurve.sdk.utils;
 
         updateNodeHost();
+        blockchainNetwork = blockchainNetwork || "eth";
 
         // load samples
         document.getElementById('sampleSelector').innerHTML =
@@ -124,6 +137,10 @@
         <a href="#nodeurlhelp" title="Click for help">(?)</a>:
         <input id="newNodeAddress" onchange="updateNodeHost()" value="" />
         (currently <b><span id="nodeAddress"></span></b>)
+    <br /><br />
+    Blockchain
+        <input name="network" type="radio" value="eth" checked="checked" onchange="updateNetwork()" />Ethereum
+        <input name="network" type="radio" value="wan" onchange = "updateNetwork()" />Wanchain
     <h2>Samples</h2>
     <table width="90%" border="1">
         <tr>

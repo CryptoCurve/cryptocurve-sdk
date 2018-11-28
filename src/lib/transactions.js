@@ -49,7 +49,6 @@ function Transaction(client, transaction) {
 
     self.setNonce(transaction.nonce);
 
-    // TODO check denomination and network
     self.setValue(transaction.value, transaction.denomination);
 
     self.setData(transaction.data);
@@ -80,31 +79,6 @@ Transaction.prototype.getRawTransaction = function(){
 };
 
 /**
- * returns the signed transport object
- */
-Transaction.prototype.getSignedTransaction = function(privateKey){
-    var self = this;
-
-    if (self.state === STATE_READY){
-        try {
-            //console.log('signing for ' + self.network + ' network');
-            //console.log(self.getTransportTransaction());
-            var signedTransaction = utils[self.network].signRawTransaction(
-                self.getTransportTransaction(),
-                privateKey
-            );
-            //console.log('signed => ' + JSON.stringify(signedTransaction));
-            return '0x' + signedTransaction.toString('hex');
-        } catch (exception){
-            //console.log(exception);
-            throw new Error('cannot sign transaction for unsupported network');
-        }
-    }
-
-    throw new Error('cannot sign incomplete transaction');
-};
-
-/**
  * return transaction object ready for transport
  */
 Transaction.prototype.getTransportTransaction = function(){
@@ -121,9 +95,7 @@ Transaction.prototype.getTransportTransaction = function(){
                 case "gasLimit":
                 case "nonce":
                     if (!Web3.utils.isHex(rawObject[property])){
-                        console.log('marshalling ' + property + ' to Hex');
                         transportObject[property] = Web3.utils.toHex(rawObject[property]);
-                        console.log('marshalled ' + property + ' to Hex');
                     } else {
                         transportObject[property] = rawObject[property];
                     }
@@ -307,10 +279,7 @@ Transaction.prototype.setNetwork = function(network){
     switch (network){
         case NETWORK_ETH:
         case NETWORK_WAN:
-            /*if (network != self.network) {
-                // TODO recalculate any values that might change
-                // NOTE: value will always be stored in wei, no need to recalculate
-            }*/
+            // NOTE: value will always be stored in wei, no need to recalculate
             self.network = network;
             self.updateState('setNetwork');
             break;
@@ -392,17 +361,45 @@ Transaction.prototype.setValue = function(value, denomination){
     self.resetProperty('value');
 
     if (denomination){
-        // convert the denomination from the current network denominations
-        // to ethereum
-        denomination = units.convert(denomination, self.network);
+        // convert the denomination from the current network denomination
+        // to ethereum network equivalent
+        denomination = units.convert(
+            denomination,
+            self.network
+        );
     } else {
-        // denomination defaults to smallest ethereum unit
-        denomination = 'wei';
+        // convert the denomination from the current network's default
+        // to ethereum network equivalent
+        denomination = units.convert(
+            utils[self.network].defaultDenomination,
+            self.network
+        );
     }
 
     // see https://web3js.readthedocs.io/en/1.0/web3-utils.html#towei
     self.value = Web3.utils.toWei(value, denomination);
     self.updateState('setValue');
+};
+
+/**
+ * returns the signed transport object
+ */
+Transaction.prototype.signTransaction = function(privateKey){
+    var self = this;
+
+    if (self.state === STATE_READY){
+        try {
+            var signedTransaction = utils[self.network].signRawTransaction(
+                self.getTransportTransaction(),
+                privateKey
+            );
+            return '0x' + signedTransaction.toString('hex');
+        } catch (exception){
+            throw new Error('cannot sign transaction for unsupported network');
+        }
+    }
+
+    throw new Error('cannot sign incomplete transaction');
 };
 
 Transaction.prototype.updateState = function(caller){

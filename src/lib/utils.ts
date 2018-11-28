@@ -1,11 +1,13 @@
 'use strict';
 
+var units = require('./units');
 var EthTx = require('ethereumjs-tx');
 var ethUtil = require('ethereumjs-util');
 var uts46 = require('idna-uts46');
 var values = require('./values');
 var wanUtil = require('wanchain-util');
 var WanTx = wanUtil.wanchainTx;
+var Web3 = require('web3');
 
 var ensNormalise = function(name: string): string {
   // NOTE: removed try catch, shouldn't have any impact
@@ -295,11 +297,14 @@ var sharedUtils: any = {
   sha256: ethUtil.sha256,
   sha3: ethUtil.sha3,      
   stripHexPrefix: ethUtil.stripHexPrefix,
+  toBN: Web3.utils.toBN,
   toBuffer: ethUtil.toBuffer,
 };
 
 var exportObject: any = {
   eth: {
+    defaultDenomination: "ether",
+    fromWei: units.fromWei,
     hash: ethHash,
     isChecksumAddress: ethIsChecksumAddress,
     isValidAddress: ethIsValidAddress,
@@ -307,15 +312,19 @@ var exportObject: any = {
     signRawTransaction: ethSignRawTransactionWithPrivateKey,
     signMessage: ethSignMessageWithPrivateKey,
     toChecksumAddress: ethUtil.toChecksumAddress,
+    toWei: units.toWei,
     Tx: EthTx,
     verifySignedMessage: ethVerifySignedMessage
   },    
 
   wan: {
+    defaultDenomination: "wan",
+    fromWin: units.fromWin,
     isChecksumAddress: wanIsChecksumAddress,
     isValidAddress: wanIsValidAddress,
     signRawTransaction: wanSignRawTransactionWithPrivateKey,
     toChecksumAddress: wanToChecksumAddress,
+    toWin: units.toWin,
     Tx: WanTx
   }
 };

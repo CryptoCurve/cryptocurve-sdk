@@ -1,3 +1,7 @@
+'use strict';
+
+var Web3 = require('web3');
+
 function Units(){}
 
 var units: any = {
@@ -58,9 +62,31 @@ var convert = function(name: string, source: string, target?: string): string{
   throw new Error('unable to convert ' + name + ' from ' + source + ' to ' + target);
 }
 
+/** 
+ * @param value wanchain wrapper for fromWei function
+ * @param denomination 
+ */
+var wanFromWin = function(value: any, denomination: string) {
+  denomination = denomination || "wan";
+  return Web3.utils.fromWei(value, convert(denomination, "wan", "eth"));
+}
+
+/** 
+ * @param value wanchain wrapper for toWei function
+ * @param denomination 
+ */
+var wanToWin = function(value: any, denomination: string) {
+  denomination = denomination || "wan";
+  return Web3.utils.toWei(value, convert(denomination, "wan", "eth"));
+}
+
 try {
   module.exports = {
-    convert: convert
+    convert: convert,
+    fromWei: Web3.utils.fromWei,
+    fromWin: wanFromWin,
+    toWei: Web3.utils.toWei,
+    toWin: wanToWin
   };
 } catch (exception){
   console.log('node.js error: ' + exception.message);

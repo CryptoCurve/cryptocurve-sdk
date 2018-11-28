@@ -32,20 +32,23 @@ Download and include the script from [our release page](https://github.com/Crypt
 After creating an instance of the SDK.Client class (see below for details), the following methods will be available:
 
 ```
+sdk.setBlockchainNetwork(network);
 sdk.setProvider(host, timeout, username, password);
 sdk.sendTransaction(transaction, privateKey);
 ```
-NOTE: transaction object must contain a network identifier, eg.
+NOTE: either setBlockchainNetwork must be called or the transaction object must contain the network identifier, eg.
 ```
 transaction.network = 'eth';
 ```
-that can be `eth`, `ethereum`, `wan` or `wanchain`. If not supplied, the sending protocol will default to the ethereum network.
+which can be `eth` for ethereum or `wan` for wanchain. If not supplied, the sending protocol will default to the ethereum network.
 
 Additionally, `web3.js` objects and methods can be accessed via `sdk.web3` or directly on the `sdk` object itself, eg.
 
 ```
 sdk.eth.getCoinbase()
 ```
+
+Utility methods are available from the `SDK.utils` library.
 
 See `examples` folder, in particular `samples.js` which can be run from both browser (`dynamic.html`) and node.js (`node dynamic`). Please note that the samples required test accounts to be configured in the `testAccounts.js` file.
 
@@ -73,6 +76,8 @@ sdk.setProvider(hostname);
 
 sdk.eth.getCoinbase()...
 sdk.web3.eth.getCoinbase()...
+
+var sdkUtils = window.cryptocurve.sdk.utils;
 </script>
 ```
 
@@ -81,10 +86,21 @@ sdk.web3.eth.getCoinbase()...
 ```
 var CryptoCurveSDK = require('cryptocurve-sdk');
 var sdk = new CryptoCurveSDK.Client();
+var sdkUtils = new CryptoCurveSDK.utils;
 
 sdk.eth.net.getId()...
 
 ```
+
+## Utility library
+
+(to be completed)
+
+- [sdkUtil.eth.fromWei](https://web3js.readthedocs.io/en/1.0/web3-utils.html#fromwei)
+- sdkUtil.wan.fromWin
+- [sdkUtil.eth.toWei](https://web3js.readthedocs.io/en/1.0/web3-utils.html#towei)
+- sdkUtil.wan.toWin
+
 
 # Something missing?
 

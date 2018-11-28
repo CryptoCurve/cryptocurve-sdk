@@ -40,9 +40,10 @@ function setFinalResult(text, id){
 
 function handleException(exception){
     console.error(exception);
+    runNextQueuedSample();
 }
 
-var lastTransactionHash;
+var blockchainNetwork, lastTransactionHash;
 
 switch (process.argv[2]){
     case 'list':
@@ -55,7 +56,14 @@ switch (process.argv[2]){
     case 'run':
         if (process.argv.length > 3) {
             var sdk = new CryptoCurveSDK.Client();
-            var nodeHost = process.argv[4];
+            var sdkUtils = CryptoCurveSDK.utils;
+            // get blockchain network from parameters
+            blockchainNetwork = process.argv[4];
+            if (!blockchainNetwork || blockchainNetwork.length == 0){
+                blockchainNetwork = 'eth';
+            }
+            // get host from parameters
+            var nodeHost = process.argv[5];
             // username and password will be set to 'test' by default if not passed
             var username = 'test', password = 'test';
 
@@ -74,7 +82,7 @@ switch (process.argv[2]){
     default:
         console.log('usage: ');
         console.log('list sample names: node dynamic.js list');
-        console.log('run sample:        node dynamic.js run <sample name> [host node]');
-        console.log('run all samples:   node dynamic.js run all [host node]');
-        console.log('host node defaults to localhost');
+        console.log('run sample:        node dynamic.js run <sample name> [blockchain network] [host node]');
+        console.log('run all samples:   node dynamic.js run all [blockchain network] [host node]');
+        console.log('host node defaults to localhost, blockchain network can be either "eth" or "wan"');
 }
