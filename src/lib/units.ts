@@ -89,5 +89,5 @@ try {
     toWin: wanToWin
   };
 } catch (exception){
-  console.log('node.js error: ' + exception.message);
+  console.log('node.js units export error: ' + exception.message);
 }

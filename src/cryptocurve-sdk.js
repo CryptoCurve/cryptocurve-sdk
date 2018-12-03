@@ -8,7 +8,8 @@ var exportObject = {
     NETWORK_ETH: transactions.NETWORK_ETH,
     NETWORK_WAN: transactions.NETWORK_WAN,
     transactions: transactions,
-    utils: require('./lib/utils')
+    utils: require('./lib/utils'),
+    wallet: require('./lib/wallet')
 };
 
 // node.js
