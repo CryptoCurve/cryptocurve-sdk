@@ -92,6 +92,39 @@ sdk.eth.net.getId()...
 
 ```
 
+## Transactions
+
+`CryptoCurveSDK.Client.createTransaction` returns a promise that resolves with the prepared transaction object:
+
+```
+sdk.createTransaction({...})
+   .then(function(transaction){
+       // ...
+   });
+```
+
+NOTE: the SDK client must be connected as the transaction instance will update itself from the blockchain node.
+
+The following methods are available on the Transaction instance:
+- `setNetwork(network)` network in ['eth', 'wan']
+- `setChainId(id) / setNetworkId(id)` a null id will retrieve the chain id from the client node
+- `setReceiverAddress(to)`
+- `setSenderAddress(from)`
+- `setNonce(nonce)` [null will retrieve the nonce from the client node]
+- `setValue(value, denomination)` denomination must be in selected blockchain's unit, eg. if network is 'wan' then denomination must be in wanchain units
+- `setData(data)`
+- `setGasPrice(gasPrice)` a null gasPrice will retrieve the price from the client node
+- `setGasLimit(gasLimit)` a null gasLimit will estimate the gas limit from the client node
+- `validate()` returns a promise that resolves if the transaction is ready and valid
+- `signTransaction(privateKey)` returns the transaction signed with the supplied private key
+
+An SDK transaction instance can be identified by its `generator` property, which will always be `'cryptocurve-sdk'`:
+```
+if (transaction.generator === 'cryptocurve-sdk') {
+    // ...
+}
+```
+
 ## Utility library
 
 (to be completed)
@@ -101,6 +134,9 @@ sdk.eth.net.getId()...
 - [sdkUtil.eth.toWei](https://web3js.readthedocs.io/en/1.0/web3-utils.html#towei)
 - sdkUtil.wan.toWin
 
+## Wallet library
+
+(to be completed)
 
 # Something missing?
 

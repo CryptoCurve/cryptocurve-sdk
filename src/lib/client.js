@@ -94,19 +94,11 @@ var transactionErrorWrapper = function(client, transaction, promiEvent, error, a
 
     // add clarification for insufficient funds error
     if (error.message.indexOf('insufficient funds for gas * price + value') >= 0){
-        // check balance to see if funds are really insufficient, or if this
-        // could possibly be a signing issue
-        var gasLimit = Web3.utils.toBN(transaction.gasLimit);
-        var gasPrice = Web3.utils.toBN(transaction.gasPrice);
-        var value = Web3.utils.toBN(transaction.value);
-        var cost = (gasLimit.mul(gasPrice)).add(value);
-
-        client.eth.getBalance(transaction.from)
-            .then(function(balance){
-                balance = Web3.utils.toBN(balance);
-                if (balance.gte(cost)){
+        transaction.checkSufficientFunds()
+            .then(function(hasSufficientFunds){
+                if (hasSufficientFunds){
                     error.message =
-                        'insufficient funds reported but funds appear sufficient, possibly a signing error';;
+                        'insufficient funds reported but funds appear sufficient, possibly a signing error';
                 } else {
                     error.message =
                         'insufficient funds for gas * price + value (' +
@@ -115,6 +107,7 @@ var transactionErrorWrapper = function(client, transaction, promiEvent, error, a
                         transaction.value + ')'
                     ;
                 }
+
                 switch (action){
                     case 'emit':
                         promiEvent.eventEmitter.emit('error', error);
@@ -161,10 +154,6 @@ var sendUnsignedTransaction = function(client, transaction, promiEvent){
 
 var sendSignedTransaction = function(client, transaction, promiEvent, privateKey){
     
-    /*client.eth.accounts.signTransaction(transaction.getTransportTransaction(), privateKey)
-        .then(function(signedTransaction){
-        });*/
-
     try {
         var signedTransaction = transaction.signTransaction(privateKey);
         client.eth.sendSignedTransaction(signedTransaction)
@@ -193,10 +182,9 @@ var sendSignedTransaction = function(client, transaction, promiEvent, privateKey
 };
 
 /**
- * entrypoint for sending signed or unsigned transactions on all supported networks
- * transaction denomination defaults to smallest unit (eg. Wei or Win)
+ * returns an sdk transaction object
  */
-Client.prototype.sendTransaction = function (transaction, privateKey) {
+Client.prototype.createTransaction = function (transaction){
     var self = this;
 
     // we need to use promiEvents to wrap promiEvents
@@ -222,19 +210,74 @@ Client.prototype.sendTransaction = function (transaction, privateKey) {
         .on('error', function(error){
             promiEvent.eventEmitter.emit('error', error);
         })
-        .then(function(transaction){
-            if (privateKey){
-                sendSignedTransaction(self, transaction, promiEvent, privateKey);
-            } else {
-                sendUnsignedTransaction(self, transaction, promiEvent);
-            }
-        })
+        .then(promiEvent.resolve)
         .catch(function(error){
             promiEvent.reject(error);
         })
         ;
 
-        return promiEvent.eventEmitter;
+    return promiEvent.eventEmitter;
+};
+
+/**
+ * entrypoint for sending signed or unsigned transactions on all supported networks
+ * transaction denomination defaults to smallest unit (eg. Wei or Win)
+ */
+Client.prototype.sendTransaction = function (transaction, privateKey) {
+    var self = this;
+
+    // we need to use promiEvents to wrap promiEvents
+    var promiEvent = Web3PromiEvent();
+
+    // network can be specified using the setBlockchainNetwork method or
+    // in the transaction object
+    if (transaction.network){
+        try {
+            self.setBlockchainNetwork(transaction.network);   
+        } catch (error){
+            promiEvent.reject(error);
+            return promiEvent.eventEmitter;
+        }
+    } else {
+        transaction.network = self.blockchainNetwork;
+    }
+
+    // if it's already an SDK transaction
+    if (transaction.generator === "cryptocurve-sdk"){
+        transaction.validate()
+            .then(function(){
+                if (privateKey){
+                    sendSignedTransaction(self, transaction, promiEvent, privateKey);
+                } else {
+                    sendUnsignedTransaction(self, transaction, promiEvent);
+                }    
+            })
+            .catch(function(error){
+                promiEvent.reject(error);
+            });
+    } else {
+        // create SDK transaction object
+        transactions.createTransaction(self, transaction)
+            .on('invalid', function(property, msg){
+                promiEvent.eventEmitter.emit('error', msg);
+            })
+            .on('error', function(error){
+                promiEvent.eventEmitter.emit('error', error);
+            })
+            .then(function(transaction){
+                if (privateKey){
+                    sendSignedTransaction(self, transaction, promiEvent, privateKey);
+                } else {
+                    sendUnsignedTransaction(self, transaction, promiEvent);
+                }
+            })
+            .catch(function(error){
+                promiEvent.reject(error);
+            })
+            ;
+    }
+
+    return promiEvent.eventEmitter;
 };
 
 try {

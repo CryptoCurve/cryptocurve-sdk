@@ -26,10 +26,10 @@ const STATE_READY = 'ready';
  * @param {*} client
  * @param {*} transaction
  */
-function Transaction(client, transaction) {
+function Transaction(client, transaction, promiEvent) {
     var self = this;
 
-    self.promiEvent = Web3PromiEvent();
+    self.generator = 'cryptocurve-sdk';
 
     self.state = STATE_PENDING;
     self.invalidProperties = [];
@@ -41,23 +41,48 @@ function Transaction(client, transaction) {
     // default to ethereum network
     transaction.network = transaction.network || NETWORK_ETH;
 
-    self.setNetwork(transaction.network);
-    self.setChainId(transaction.chainId);
+    self.setNetwork(transaction.network, promiEvent);
+    self.setChainId(transaction.chainId, promiEvent);
 
-    self.setReceiverAddress(transaction.to);
-    self.setSenderAddress(transaction.from);
+    self.setReceiverAddress(transaction.to, promiEvent);
+    self.setSenderAddress(transaction.from, promiEvent);
 
-    self.setNonce(transaction.nonce);
+    self.setNonce(transaction.nonce, promiEvent);
 
-    self.setValue(transaction.value, transaction.denomination);
+    self.setValue(transaction.value, transaction.denomination, promiEvent);
 
-    self.setData(transaction.data);
+    self.setData(transaction.data, promiEvent);
 
     // NOTE order is important, gas price and limit
     //      should be the last details set
-    self.setGasPrice(transaction.gasPrice);
-    self.setGasLimit(transaction.gasLimit);
+    self.setGasPrice(transaction.gasPrice, promiEvent);
+    // gas limit must be set via gasPrice unless it's being overridden
+    if (transaction.gasLimit) {
+        self.setGasLimit(transaction.gasLimit, promiEvent);
+    }
 }
+
+Transaction.prototype.checkSufficientFunds = function() {
+    var self = this;
+
+    var promiEvent = Web3PromiEvent();
+
+    if (self.state != STATE_READY){
+        promiEvent.reject(new Error('transaction not ready'));
+        return;
+    }
+
+    var balance = Web3.utils.toBN(self.balance);
+
+    var gasLimit = Web3.utils.toBN(self.gasLimit);
+    var gasPrice = Web3.utils.toBN(self.gasPrice);
+    var value = Web3.utils.toBN(self.value);
+    
+    var cost = (gasLimit.mul(gasPrice)).add(value);
+
+    promiEvent.resolve(balance.gte(cost));
+    return promiEvent.eventEmitter;
+};
 
 /**
  * return an unprocessed transaction object with
@@ -115,19 +140,16 @@ Transaction.prototype.getTransportTransaction = function(){
  * set a transaction field status to invalid and report to
  * caller
  */
-Transaction.prototype.invalidate = function(property, msg){
+Transaction.prototype.invalidate = function(property, msg, promiEvent){
     var self = this;
+    promiEvent = promiEvent || new Web3PromiEvent();
 
     self.state = STATE_INVALID;
     self.invalidProperties.push(property);
 
-    // if promiEvent hasn't yet been resolved
-    if (self.promiEvent){
-        self.promiEvent.eventEmitter.emit('invalid', property, msg);
-        self.promiEvent.reject(new Error('invalid ' + property + ': ' + msg));
-    } else {
-        throw new Error(msg);
-    }
+    promiEvent.eventEmitter.emit('invalid', property, msg);
+
+    return promiEvent.eventEmitter;
 }
 
 /**
@@ -157,42 +179,54 @@ Transaction.prototype.resetProperty = function(property){
  * if chainId isn't submitted then it must be determined
  * from the client node
  */
-Transaction.prototype.setChainId = function(chainId){
+Transaction.prototype.setChainId = function(chainId, promiEvent){
     var self = this;
     self.resetProperty('chainId');
+    promiEvent = promiEvent || new Web3PromiEvent();
 
     if (chainId){
         self.chainId = chainId;
-        self.updateState('setChainId');
+        self.updateState('setChainId', promiEvent);
     } else {
         if (!self.client){
-            return self.invalidate('chainId', 'cannot set chainId with no client available');
+            return self.invalidate(
+                'chainId',
+                'cannot set chainId with no client available',
+                promiEvent
+            );
         }
         // get chainId from client
         self.client.eth.net.getId()
             .then(function(chainId){
                 self.chainId = chainId;
-                self.updateState('setChainId');
+                self.updateState('setChainId', promiEvent);
             })
             .catch(function(error){
-                self.invalidate('chainId', error.message);
+                self.invalidate('chainId', error.message, promiEvent);
             });
     }
+
+    return promiEvent.eventEmitter;
 };
 
 /**
  * set sdk client
  */
-Transaction.prototype.setClient = function(client){
+Transaction.prototype.setClient = function(client, promiEvent){
+    promiEvent = promiEvent || new Web3PromiEvent();
     this.client = client;
+    promiEvent.resolve();
+    return promiEvent.eventEmitter;
 };
 
-// TODO contract and abi
+// TBD contract and abi
 
-Transaction.prototype.setData = function(data){
+Transaction.prototype.setData = function(data, promiEvent){
     var self = this;
+    promiEvent = promiEvent || new Web3PromiEvent();
     self.data = data || "";
-    self.updateState('setData');
+    self.updateState('setData', promiEvent);
+    return promiEvent.eventEmitter;
 }
 
 /**
@@ -201,13 +235,14 @@ Transaction.prototype.setData = function(data){
  * (note: upper bound from MCC was 800000, but when signing a
  * wanchain transaction it was hard-coded to 47000)
  */
-Transaction.prototype.setGasLimit = function(gasLimit){
+Transaction.prototype.setGasLimit = function(gasLimit, promiEvent){
     var self = this;
     self.resetProperty('gasLimit');
+    promiEvent = promiEvent || new Web3PromiEvent();
 
     if (gasLimit){
         self.gasLimit = gasLimit;
-        self.updateState('setGasLimit');
+        self.updateState('setGasLimit', promiEvent);
     } else {
         // TODO override for WAN network with hardcoded values
 
@@ -215,22 +250,24 @@ Transaction.prototype.setGasLimit = function(gasLimit){
         //      we cannot estimate the limit. once gasPrice is
         //      set it must ensure the limit is set too
         if (!self.gasPrice){
-            return;
+            return self.invalidate('gasLimit', 'cannot estimate gas limit without gas price', promiEvent);
         }
 
         if (!self.client){
-            return self.invalidate('gasLimit', 'cannot set gasLimit with no client available');
+            return self.invalidate('gasLimit', 'cannot set gasLimit with no client available', promiEvent);
         }
 
         self.client.eth.estimateGas(self.getTransportTransaction())
             .then(function(gasLimit){
                 self.gasLimit = gasLimit;
-                self.updateState('setGasLimit');
+                self.updateState('setGasLimit', promiEvent);
             })
             .catch(function(error){
-                self.invalidate('gasLimit', error.message);
+                self.invalidate('gasLimit', error.message, promiEvent);
             });
     }
+
+    return promiEvent.eventEmitter;
 }
 
 /**
@@ -247,108 +284,144 @@ Transaction.prototype.setGasLimit = function(gasLimit){
  * NOTE: it might be better to retrieve the price from https://ethgasstation.info/
  *       see https://github.com/ethereum/go-ethereum/issues/15825#issuecomment-355872594
  */
-Transaction.prototype.setGasPrice = function(gasPrice){
+Transaction.prototype.setGasPrice = function(gasPrice, promiEvent){
     var self = this;
     self.resetProperty('gasPrice');
+    promiEvent = promiEvent || new Web3PromiEvent();
 
     if (gasPrice){
         self.gasPrice = gasPrice;
-        self.updateState('setGasPrice');
+        // once gas price has been updated, we must update
+        // the gas limit, which is calculated based on the
+        // gas price. this will in turn call updateState
+        self.setGasLimit(null, promiEvent);
     } else {
         // TODO override for WAN network with hardcoded values
         if (!self.client){
-            return self.invalidate('gasPrice', 'cannot set gasPrice with no client available');
+            return self.invalidate(
+                'gasPrice',
+                'cannot set gasPrice with no client available',
+                promiEvent
+            );
         }
         self.client.eth.getGasPrice()
             .then(function(gasPrice){
                 // gas price returned in gwei, which requires * 1e9 to convert to wei
                 self.gasPrice = gasPrice * 1e9;
-                // ensure gas limit is set (which will call updateState)
-                self.setGasLimit(self.gasLimit);
+                // once gas price has been updated, we must update
+                // the gas limit, which is calculated based on the
+                // gas price. this will in turn call updateState
+                self.setGasLimit(null, promiEvent);
             })
             .catch(function(error){
-                self.invalidate('gasPrice', error.message);
+                self.invalidate('gasPrice', error.message, promiEvent);
             });
     }
+
+    return promiEvent.eventEmitter;
 }
 
-Transaction.prototype.setNetwork = function(network){
+Transaction.prototype.setNetwork = function(network, promiEvent){
     var self = this;
     self.resetProperty('network');
+    promiEvent = promiEvent || new Web3PromiEvent();
 
     switch (network){
         case NETWORK_ETH:
         case NETWORK_WAN:
             // NOTE: value will always be stored in wei, no need to recalculate
             self.network = network;
-            self.updateState('setNetwork');
+            self.updateState('setNetwork', promiEvent);
             break;
         default:
-            self.invalidate('chainId', 'invalid network specified');
+            self.invalidate('chainId', 'invalid network specified', promiEvent);
     }
+
+    return promiEvent.eventEmitter;
 };
 
 /**
  * wrapper for setChainId
  */
-Transaction.prototype.setNetworkId = function(networkId){
-    this.setChainId(networkId);
+Transaction.prototype.setNetworkId = function(networkId, promiEvent){
+    return this.setChainId(networkId, promiEvent);
 };
 
-Transaction.prototype.setNonce = function(nonce){
+Transaction.prototype.setNonce = function(nonce, promiEvent){
     var self = this;
     self.resetProperty('nonce');
+    promiEvent = promiEvent || new Web3PromiEvent();
 
     if (nonce){
         self.nonce = nonce;
-        self.updateState('setNonce');
+        self.updateState('setNonce', promiEvent);
     } else {
         if (!self.client){
-            return self.invalidate('nonce', 'cannot set nonce with no client available');
+            return self.invalidate(
+                'nonce',
+                'cannot set nonce with no client available',
+                promiEvent
+            );
         }
 
         // NOTE if sender address not set we cannot get the
         //      transaction count. once sender address is
         //      set it must ensure the nonce is set too
         if (!self.from){
-            return;
+            return self.invalidate(
+                'nonce',
+                'cannot set nonce without sender address',
+                promiEvent
+            );
         }
 
         // get nonce from client
         self.client.eth.getTransactionCount(self.from)
             .then(function(result){
                 self.nonce = result;
-                self.updateState('setNonce');
+                self.updateState('setNonce', promiEvent);
             })
             .catch(function(error){
-                self.invalidate('nonce', error.message);
+                self.invalidate('nonce', error.message, promiEvent);
             });
     }
+
+    return promiEvent.eventEmitter;
 };
 
-Transaction.prototype.setReceiverAddress = function(address){
+Transaction.prototype.setReceiverAddress = function(address, promiEvent){
     var self = this;
     self.resetProperty('to');
+    promiEvent = promiEvent || new Web3PromiEvent();
     
     if (!utils[self.network].isValidAddress){
-        return self.invalidate('to', 'invalid receiver address');
+        return self.invalidate('to', 'invalid receiver address', promiEvent);
     }
 
     self.to = address;
-    self.updateState('setReceiverAddress');
+    self.updateState('setReceiverAddress', promiEvent);
+
+    return promiEvent.eventEmitter;
 };
 
-Transaction.prototype.setSenderAddress = function(address){
+Transaction.prototype.setSenderAddress = function(address, promiEvent){
     var self = this;
     self.resetProperty('from');
+    promiEvent = promiEvent || new Web3PromiEvent();
     
     if (!utils[self.network].isValidAddress){
         return self.invalidate('from', 'invalid sender address');
     }
 
     self.from = address;
+
+    // updateBalance will call updateState
+    self.updateBalance(promiEvent);
+
     // ensure nonce is set (which will call updateState)
-    self.setNonce(self.nonce);
+    self.setNonce(self.nonce, promiEvent);
+
+    return promiEvent;
 };
 
 /**
@@ -356,29 +429,27 @@ Transaction.prototype.setSenderAddress = function(address){
  * web3.js is for ethereum), so regardless of what is sent we must
  * store the value in wei.
  */
-Transaction.prototype.setValue = function(value, denomination){
+Transaction.prototype.setValue = function(value, denomination, promiEvent){
     var self = this;
     self.resetProperty('value');
+    promiEvent = promiEvent || new Web3PromiEvent();
 
-    if (denomination){
-        // convert the denomination from the current network denomination
-        // to ethereum network equivalent
-        denomination = units.convert(
-            denomination,
-            self.network
-        );
-    } else {
-        // convert the denomination from the current network's default
-        // to ethereum network equivalent
-        denomination = units.convert(
-            utils[self.network].defaultDenomination,
-            self.network
-        );
+    if (!denomination){
+        denomination = utils[self.network].defaultDenomination;
     }
+
+    // convert the denomination from the current network denomination
+    // to ethereum network equivalent
+    denomination = units.convert(
+        denomination,
+        self.network
+    );
 
     // see https://web3js.readthedocs.io/en/1.0/web3-utils.html#towei
     self.value = Web3.utils.toWei(value, denomination);
-    self.updateState('setValue');
+    self.updateState('setValue', promiEvent);
+
+    return promiEvent.eventEmitter;
 };
 
 /**
@@ -402,9 +473,43 @@ Transaction.prototype.signTransaction = function(privateKey){
     throw new Error('cannot sign incomplete transaction');
 };
 
-Transaction.prototype.updateState = function(caller){
+Transaction.prototype.updateBalance = function(promiEvent){
+    var self = this;
+    self.resetProperty('balance');
+    promiEvent = promiEvent || new Web3PromiEvent();
+
+    if (!self.client){
+        return self.invalidate('balance', 'cannot get balance with no client available', promiEvent);
+    }
+
+    // NOTE if sender address not set we cannot get the
+    //      balance. once sender address is
+    //      set it must ensure the balance is retrieved too
+    if (!self.from){
+        return self.invalidate(
+            'balance',
+            'cannot update balance without sender address',
+            promiEvent
+        );
+    }
+
+    // get balance from client
+    self.client.eth.getBalance(self.from)
+        .then(function(balance){
+            self.balance = balance;
+            self.updateState('balance', promiEvent);
+        })
+        .catch(function(error){
+            self.invalidate('balance', error.message, promiEvent);
+        });
+    
+    return promiEvent.eventEmitter;
+};
+
+Transaction.prototype.updateState = function(caller, promiEvent){
     //console.log('updateState called from ' + caller);
     var self = this;
+    promiEvent = promiEvent || new Web3PromiEvent();
 
     if (self.invalidProperties.length > 0){
         self.state = STATE_INVALID;
@@ -420,44 +525,56 @@ Transaction.prototype.updateState = function(caller){
         self.nonce != null &&
         self.gasPrice != null &&
         self.gasLimit != null &&
-        self.data != null
+        self.data != null &&
+        self.balance != null
     ) {
-        try {
-            self.state = STATE_READY;
-
-            if (self.promiEvent){
-                // resolve promise with this transaction instance
-                self.promiEvent.resolve(self);
-                // remove promiEvent so that it can only
-                // resolve once
-                self.promiEvent = null;
-            }
-        } catch (error){
-            self.state = STATE_INVALID;
-            
-            if (self.promiEvent){
-                self.promiEvent.eventEmitter.emit('error', error);
-                self.promiEvent.reject(error);
-            } else {
-                throw error;
-            }
-        }
+        self.state = STATE_READY;
+        promiEvent.resolve(self);
     } else {
         // no need to do anything when transaction isn't ready
-        //console.log(self.getRawTransaction());
+        // console.log(self.getRawTransaction());
     }
+
+    return promiEvent.eventEmitter;
 };
 
 /**
- * creates a transaction instance and returns its promiEvent,
+ * ensures that account has sufficient balance and that
+ * transaction state is ready
+ */
+Transaction.prototype.validate = function(){
+    var self = this;
+    var promiEvent = Web3PromiEvent();
+
+    if (self.state == STATE_READY){
+        self.checkSufficientFunds()
+        .then(function(hasSufficientFunds){
+            if (hasSufficientFunds){
+                promiEvent.resolve();
+            } else {
+                promiEvent.reject(new Error('transaction invalid: insufficient funds'));
+            }
+        });
+    } else {
+        var error = new Error('transaction invalid: not ready');
+        promiEvent.eventEmitter.emit('error', error);
+        promiEvent.reject(error);
+    }
+
+    return promiEvent.eventEmitter;
+};
+
+/**
+ * creates a transaction instance using a promiEvent,
  * which will resolve when transaction is ready and fire error
  * events whenever there are issues
  * @param {*} client 
  * @param {*} transaction 
  */
 var createTransaction = function(client, transaction){
-    var transaction = new Transaction(client, transaction);
-    return transaction.promiEvent.eventEmitter;
+    var promiEvent = new Web3PromiEvent();
+    var transaction = new Transaction(client, transaction, promiEvent);
+    return promiEvent.eventEmitter;
 };
 
 var exportObject = {
