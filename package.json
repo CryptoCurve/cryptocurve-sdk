@@ -5,7 +5,7 @@
     "type": "git",
     "url": "https://github.com/CryptoCurve/cryptocurve-sdk.git"
   },
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "CryptoCurve SDK provides a single, simple API for cross-chain (ETH, WAN) functionality",
   "main": "bin/cryptocurve-sdk.js",
   "window": "dist/cryptocurve-sdk.js",
