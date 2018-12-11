@@ -204,8 +204,11 @@ Client.prototype.createTransaction = function (transaction){
     }
 
     transactions.createTransaction(self, transaction)
+        .on('message', function(msg) {
+            promiEvent.eventEmitter.emit('message', msg);
+        })
         .on('invalid', function(property, msg){
-            promiEvent.eventEmitter.emit('error', msg);
+            promiEvent.eventEmitter.emit('invalid', property, msg);
         })
         .on('error', function(error){
             promiEvent.eventEmitter.emit('error', error);
@@ -244,7 +247,16 @@ Client.prototype.sendTransaction = function (transaction, privateKey) {
 
     // if it's already an SDK transaction
     if (transaction.generator === "cryptocurve-sdk"){
+        process.nextTick(()=>{
+            promiEvent.eventEmitter.emit('message', 'validating existing transaction object');
+        });
         transaction.validate()
+            .on('message', function(msg) {
+                promiEvent.eventEmitter.emit('message', msg);
+            })
+            .on('invalid', function(property, msg){
+                promiEvent.eventEmitter.emit('invalid', property, msg);
+            })
             .then(function(){
                 if (privateKey){
                     sendSignedTransaction(self, transaction, promiEvent, privateKey);
@@ -257,9 +269,15 @@ Client.prototype.sendTransaction = function (transaction, privateKey) {
             });
     } else {
         // create SDK transaction object
+        process.nextTick(()=>{
+            promiEvent.eventEmitter.emit('message', 'generating new transaction object');
+        });
         transactions.createTransaction(self, transaction)
+            .on('message', function(msg) {
+                promiEvent.eventEmitter.emit('message', msg);
+            })
             .on('invalid', function(property, msg){
-                promiEvent.eventEmitter.emit('error', msg);
+                promiEvent.eventEmitter.emit('invalid', property, msg);
             })
             .on('error', function(error){
                 promiEvent.eventEmitter.emit('error', error);
